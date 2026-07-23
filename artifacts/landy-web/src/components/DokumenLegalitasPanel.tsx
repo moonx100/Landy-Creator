@@ -10,10 +10,6 @@
  * Two entity types:
  *   Badan Usaha (PT/CV/dll)  — NIB, Akta Pendirian, Akta Perubahan Terakhir, NPWP Perusahaan
  *   Perorangan               — KTP, NPWP Individu
- *
- * Tooltip content for each document type is a placeholder ("Deskripsi segera
- * hadir.") — actual descriptions are filled in by a separate follow-up task
- * once the product owner has reviewed the copy.
  */
 import { useState, useEffect } from "react";
 import { ChevronDown, ChevronUp, Info, AlertTriangle } from "lucide-react";
@@ -35,22 +31,40 @@ const BADAN_USAHA_DOCS: DocItem[] = [
   {
     id: "nib",
     name: "NIB (Nomor Induk Berusaha)",
-    description: "Deskripsi segera hadir.",
+    description:
+      "Tanda daftar usaha resmi yang diterbitkan sistem OSS (Online Single Submission) " +
+      "Kementerian Investasi. NIB menggantikan SIUP dan TDP lama. " +
+      "Pastikan: nama perusahaan di NIB sama dengan di kontrak, dan bidang usaha yang " +
+      "tercantum mencakup kegiatan yang diperjanjikan (misalnya periklanan, promosi, atau konten digital).",
   },
   {
     id: "akta_pendirian",
     name: "Akta Pendirian",
-    description: "Deskripsi segera hadir.",
+    description:
+      "Akta notaris yang secara resmi mendirikan badan usaha, disahkan oleh Kementerian " +
+      "Hukum dan HAM (Kemenkumham). Memuat nama perusahaan, modal dasar, dan susunan " +
+      "pengurus pertama beserta kewenangannya. " +
+      "Pastikan: nama perusahaan sesuai kontrak, dan cek apakah penandatangan kontrak " +
+      "sudah tercantum di sini — atau di Akta Perubahan Terakhir jika ada pergantian Direksi.",
   },
   {
     id: "akta_perubahan",
     name: "Akta Perubahan Terakhir (mengenai perubahan Direksi)",
-    description: "Deskripsi segera hadir.",
+    description:
+      "Akta notaris terbaru yang mencatat perubahan susunan Direksi, disahkan oleh " +
+      "Kemenkumham. Harus yang paling mutakhir — periksa tanggal dan nomor akta. " +
+      "Pastikan: nama penandatangan kontrak tercantum sebagai Direktur yang masih aktif " +
+      "pada akta ini. Jika tidak ada, minta Surat Kuasa dari Direksi yang berwenang.",
   },
   {
     id: "npwp_perusahaan",
     name: "NPWP Perusahaan",
-    description: "Deskripsi segera hadir.",
+    description:
+      "Nomor Pokok Wajib Pajak badan usaha, diterbitkan oleh Direktorat Jenderal Pajak " +
+      "(DJP). Digunakan untuk semua kewajiban perpajakan perusahaan, termasuk pemotongan " +
+      "PPh 21/23 atas honor kreator. " +
+      "Pastikan: nama dan alamat di NPWP sesuai dengan yang ada di kontrak, dan ini " +
+      "adalah NPWP badan (15 digit), bukan NPWP pribadi.",
   },
 ];
 
@@ -58,12 +72,21 @@ const PERORANGAN_DOCS: DocItem[] = [
   {
     id: "ktp",
     name: "KTP / Kartu Tanda Penduduk",
-    description: "Deskripsi segera hadir.",
+    description:
+      "Kartu identitas resmi warga negara Indonesia, diterbitkan oleh Dinas Kependudukan " +
+      "dan Pencatatan Sipil (Disdukcapil) setempat. Berlaku seumur hidup untuk WNI usia ≥17 " +
+      "tahun (tidak ada tanggal kedaluwarsa pada KTP-el baru). " +
+      "Pastikan: nama pada KTP sama persis dengan nama penandatangan di kontrak, NIK " +
+      "16 digit terlihat jelas, dan foto serta chip tidak rusak.",
   },
   {
     id: "npwp_individu",
     name: "NPWP Individu",
-    description: "Deskripsi segera hadir.",
+    description:
+      "Nomor Pokok Wajib Pajak perseorangan, diterbitkan oleh Direktorat Jenderal Pajak " +
+      "(DJP). Diperlukan untuk pelaporan PPh 21 atas penghasilan yang diterima dari kontrak ini. " +
+      "Pastikan: nama pada NPWP sesuai dengan nama penandatangan kontrak dan dengan KTP, " +
+      "serta ini adalah NPWP pribadi (16 digit pada format terbaru), bukan NPWP badan usaha.",
   },
 ];
 
