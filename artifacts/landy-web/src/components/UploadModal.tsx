@@ -15,11 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 const ACCEPTED_TYPES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
 ];
-const ACCEPTED_EXT = [".docx", ".pdf", ".jpg", ".jpeg", ".png", ".webp"];
+const ACCEPTED_EXT = [".docx", ".pdf"];
 const MAX_MB = 20;
 
 interface Props {
@@ -135,7 +132,7 @@ export function UploadModal({ open, onClose, onSuccess }: Props) {
         <DialogHeader>
           <DialogTitle className="font-serif">Unggah Kontrak</DialogTitle>
           <DialogDescription>
-            Unggah kontrak dalam format DOCX, PDF, atau gambar (maks {MAX_MB} MB).
+            Unggah kontrak dalam format DOCX atau PDF (maks {MAX_MB} MB).
             Informasi pribadi yang tidak diperlukan sebaiknya dihapus sebelum diunggah.
           </DialogDescription>
         </DialogHeader>

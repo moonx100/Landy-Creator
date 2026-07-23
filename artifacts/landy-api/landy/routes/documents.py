@@ -27,7 +27,7 @@ from typing import Optional, Tuple, Any
 from uuid import UUID
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from landy.deps.auth import get_current_user
 from landy.deps.quota import consume_quota, require_quota
@@ -45,13 +45,10 @@ import landy.storage as storage
 
 router = APIRouter()
 
-_ALLOWED_EXTENSIONS = {"docx", "pdf", "jpg", "jpeg", "png", "webp"}
+_ALLOWED_EXTENSIONS = {"docx", "pdf"}
 _ALLOWED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "image/webp",
 }
 _MAX_BYTES = 20 * 1024 * 1024  # 20 MB
 
@@ -64,10 +61,6 @@ def _source_format_from_ext(ext: str) -> str:
     return {
         "docx": "docx",
         "pdf": "pdf_text",  # worker will correct to pdf_image if needed
-        "jpg": "image",
-        "jpeg": "image",
-        "png": "image",
-        "webp": "image",
     }.get(ext, "docx")
 
 
@@ -272,9 +265,9 @@ def upload_version(
     auth: Tuple[sa.engine.Connection, Any] = Depends(get_current_user),
     _quota: None = Depends(require_quota),
 ) -> VersionUploadResponse:
-    """Upload a contract file, store it in MinIO, and enqueue an analysis job.
+    """Upload a contract file, store it, and enqueue an analysis job.
 
-    Accepts: DOCX, PDF, JPG, JPEG, PNG, WEBP (max 20 MB).
+    Accepts: DOCX, PDF (max 20 MB).
     Returns immediately with version info and job_id for polling.
     """
     conn, user = auth
@@ -289,7 +282,7 @@ def upload_version(
             status_code=415,
             detail=(
                 f"Format file '{ext}' tidak didukung. "
-                "Gunakan: DOCX, PDF, JPG, JPEG, PNG, atau WEBP."
+                "Gunakan DOCX atau PDF."
             ),
         )
 
@@ -313,15 +306,11 @@ def upload_version(
     ).fetchone()
     version_no = (max_v.max_v if max_v else 0) + 1
 
-    # ── Upload to MinIO ────────────────────────────────────────────────────────
+    # ── Upload to storage (S3 or local filesystem) ────────────────────────────
     key = storage.storage_key(uid, str(document_id), version_no, filename)
     content_type_map = {
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "pdf": "application/pdf",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "png": "image/png",
-        "webp": "image/webp",
     }
     try:
         storage.upload_bytes(
@@ -412,6 +401,7 @@ def list_versions(
 def download_version(
     document_id: UUID,
     version_id: UUID,
+    request: Request,
     auth: Tuple[sa.engine.Connection, Any] = Depends(get_current_user),
 ) -> PresignedDownloadResponse:
     """Generate a 10-minute presigned URL for direct download. Never stores or
@@ -435,8 +425,19 @@ def download_version(
     if not version_row:
         raise HTTPException(status_code=404, detail="Versi dokumen tidak ditemukan.")
 
+    # In local mode, pass the bearer token so generate_presigned_url can embed
+    # it in the returned URL for unauthenticated-header browser downloads.
+    bearer_token: str | None = None
+    if storage.is_local_mode():
+        auth_header = request.headers.get("Authorization", "")
+        bearer_token = auth_header.removeprefix("Bearer ").strip() or None
+
     try:
-        url = storage.generate_presigned_url(version_row.storage_key, expires_in=600)
+        url = storage.generate_presigned_url(
+            version_row.storage_key,
+            expires_in=600,
+            bearer_token=bearer_token,
+        )
     except Exception as exc:
         logger.error("presigned_url_failed", key=version_row.storage_key, error=str(exc))
         raise HTTPException(

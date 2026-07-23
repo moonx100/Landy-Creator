@@ -411,6 +411,15 @@ def _cleanup_deleted_documents() -> None:
 
 def main() -> None:
     logger.info("landy_worker_start", poll_interval=_POLL_INTERVAL_SECONDS)
+
+    # Bootstrap storage backend — auto-selects local filesystem if S3 is
+    # unreachable (same logic as the API server). Must run before any job is
+    # processed so download_bytes() uses the correct backend.
+    try:
+        storage.bootstrap_bucket()
+    except Exception as exc:
+        logger.error("worker_storage_bootstrap_failed", error=str(exc))
+
     _recover_stuck_jobs()
 
     scheduler = BackgroundScheduler()
