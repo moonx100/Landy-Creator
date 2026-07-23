@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Scale, Loader2, AlertTriangle, Info,
-  PlusCircle, MinusCircle, RefreshCw, ArrowRight, Sparkles,
+  PlusCircle, MinusCircle, RefreshCw, ArrowRight, Sparkles, X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -411,7 +411,7 @@ export default function DiffPage() {
               </div>
             </div>
 
-            {/* Expired-analysis banner — persists until creator starts a new analysis */}
+            {/* Expired-analysis banner — persists until creator starts a new analysis or dismisses */}
             {!diff.job_id && diff.material_count > 0 && showExpiredBanner && (
               <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
                 <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
@@ -436,6 +436,14 @@ export default function DiffPage() {
                   )}
                   {triggeringAnalysis ? "Memulai…" : "Mulai Analisis"}
                 </Button>
+                <button
+                  onClick={() => setShowExpiredBanner(false)}
+                  className="shrink-0 p-1 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-100 transition-colors"
+                  title="Tutup peringatan"
+                  aria-label="Tutup peringatan analisis kedaluwarsa"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             )}
 
