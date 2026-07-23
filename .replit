@@ -11,6 +11,23 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/api-server: Background Worker"
+
+[[workflows.workflow]]
+name = "artifacts/api-server: Background Worker"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace/artifacts/landy-api && python worker.py"
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
