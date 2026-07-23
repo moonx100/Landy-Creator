@@ -7,6 +7,7 @@ import { Route, Switch, Router as WouterRouter } from 'wouter';
 import RedeemPage from '@/pages/RedeemPage';
 import LoginPage from '@/pages/LoginPage';
 import HomePage from '@/pages/HomePage';
+import ReviewPage from '@/pages/ReviewPage';
 
 const queryClient = new QueryClient();
 
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/" component={HomePage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/redeem" component={RedeemPage} />
+      <Route path="/review/:jobId" component={ReviewPage} />
       <Route component={NotFound} />
     </Switch>
   );

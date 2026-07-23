@@ -223,6 +223,7 @@ export interface RiskFlagResponse {
 export interface AnalysisResultsResponse {
   job_id: string;
   version_id: string;
+  document_id: string;   // parent document — used by ReviewPage to call export endpoints
   state: string;
   stage: string | null;
   error_message: string | null;
@@ -256,5 +257,69 @@ export async function triggerAnalysis(versionId: string): Promise<AnalysisJobRes
 export async function getAnalysisResults(jobId: string): Promise<AnalysisResultsResponse> {
   const res = await fetch(`${ANALYSES_BASE}/${jobId}/results`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error('Gagal memuat hasil analisis.');
+  return res.json();
+}
+
+// ── Export + suggested-edit acceptance (Task 4) ───────────────────────────────
+
+/** Accept (true), reject (false), or reset (null) a suggested edit. */
+export async function patchSuggestedEdit(
+  editId: string,
+  accepted: boolean | null,
+): Promise<SuggestedEditResponse & { accepted: boolean | null }> {
+  const res = await fetch(`/api/suggested-edits/${editId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ accepted }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Gagal menyimpan pilihan.' }));
+    throw new Error(err.detail || 'Gagal menyimpan pilihan.');
+  }
+  return res.json();
+}
+
+export interface DocxExportResponse {
+  url: string;
+  expires_in_seconds: number;
+  edit_count: number;
+  comment_only_count: number;
+  warning: string | null;
+}
+
+export interface EmailDraftResponse {
+  draft: string;
+  flag_count: number;
+}
+
+/** Generate DOCX with real tracked changes. Returns a presigned download URL. */
+export async function exportDocx(
+  documentId: string,
+  versionId: string,
+): Promise<DocxExportResponse> {
+  const res = await fetch(
+    `${DOCS_BASE}/${documentId}/versions/${versionId}/export/docx`,
+    { method: 'POST', headers: getAuthHeaders() },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Gagal menghasilkan DOCX.' }));
+    throw new Error(err.detail || 'Gagal menghasilkan DOCX.');
+  }
+  return res.json();
+}
+
+/** Generate Bahasa Indonesia negotiation email draft via LLM. */
+export async function exportEmailDraft(
+  documentId: string,
+  versionId: string,
+): Promise<EmailDraftResponse> {
+  const res = await fetch(
+    `${DOCS_BASE}/${documentId}/versions/${versionId}/export/email-draft`,
+    { method: 'POST', headers: getAuthHeaders() },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Gagal menghasilkan email draft.' }));
+    throw new Error(err.detail || 'Gagal menghasilkan email draft.');
+  }
   return res.json();
 }

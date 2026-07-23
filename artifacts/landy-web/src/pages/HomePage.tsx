@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   Scale, LogOut, FileText, Upload, Plus, Trash2, Download,
-  Loader2, CheckCircle2, AlertTriangle, Clock, RefreshCw,
+  Loader2, CheckCircle2, AlertTriangle, Clock, RefreshCw, Search,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -179,9 +179,17 @@ export default function HomePage() {
     }
   };
 
-  const handleUploadSuccess = (jobId: string) => {
+  const handleUploadSuccess = (_jobId: string) => {
     fetchDocuments();
     fetchUser();
+  };
+
+  const handleReview = (doc: DocumentListItem) => {
+    const job = doc.latest_job;
+    if (!job || job.state !== "done") return;
+    // ReviewPage fetches document_id and version_id from the API results directly —
+    // no sessionStorage needed; deep-linking to /review/:jobId always works.
+    setLocation(`/review/${job.job_id}`);
   };
 
   if (pageLoading) {
@@ -339,6 +347,18 @@ export default function HomePage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
+                        {/* Review button — available when analysis is done */}
+                        {doc.latest_job?.state === "done" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5 text-xs h-8 text-primary border-primary/40 hover:bg-primary/5"
+                            title="Tinjau hasil analisis"
+                            onClick={() => handleReview(doc)}
+                          >
+                            <Search className="w-3.5 h-3.5" />Tinjau
+                          </Button>
+                        )}
                         {doc.latest_version && (
                           <Button
                             variant="ghost"

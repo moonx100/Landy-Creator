@@ -140,12 +140,13 @@ def get_analysis_results(
     conn, user = auth
     uid = str(user.user_id)
 
-    # Fetch the job (ownership check via user_id = :uid)
+    # Fetch the job + parent document_id (ownership check via user_id = :uid)
     job_row = conn.execute(
         sa.text(
             "SELECT aj.id, aj.version_id, aj.user_id, aj.state, aj.stage, "
-            "aj.error_message, aj.created_at, aj.finished_at "
+            "aj.error_message, aj.created_at, aj.finished_at, dv.document_id "
             "FROM analysis_jobs aj "
+            "JOIN document_versions dv ON dv.id = aj.version_id "
             "WHERE aj.id = :jid AND aj.user_id = :uid"
         ),
         {"jid": str(job_id), "uid": uid},
@@ -233,6 +234,7 @@ def get_analysis_results(
     return AnalysisResultsResponse(
         job_id=job_row.id,
         version_id=job_row.version_id,
+        document_id=job_row.document_id,
         state=job_row.state,
         stage=job_row.stage,
         error_message=job_row.error_message,

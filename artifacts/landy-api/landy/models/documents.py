@@ -143,6 +143,7 @@ class AnalysisResultsResponse(pydantic.BaseModel):
     """Full analysis results for one job — returned by GET /api/analyses/{job_id}/results."""
     job_id: UUID
     version_id: UUID
+    document_id: UUID  # parent document — needed by ReviewPage to call export endpoints
     state: str
     stage: Optional[str]
     error_message: Optional[str]
