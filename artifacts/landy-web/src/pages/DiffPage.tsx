@@ -175,7 +175,11 @@ export default function DiffPage() {
   const [diff, setDiff] = useState<VersionDiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [triggeringAnalysis, setTriggeringAnalysis] = useState(false);
+  // Initialise from sessionStorage so the button stays suppressed across reloads.
+  const sessionKey = `landy_analysis_pending_${versionId}`;
+  const [triggeringAnalysis, setTriggeringAnalysis] = useState(
+    () => sessionStorage.getItem(sessionKey) === "1"
+  );
   // Ref-based in-flight guard: prevents a second call from firing before the
   // first async call resolves, even if React hasn't re-rendered yet.
   const analysisInFlight = useRef(false);
@@ -189,6 +193,12 @@ export default function DiffPage() {
     try {
       const data = await getVersionDiff(docId, versionId);
       setDiff(data);
+      // If the job completed while we were away, clear the pending flag.
+      if (data.job_id) {
+        sessionStorage.removeItem(sessionKey);
+        setTriggeringAnalysis(false);
+        analysisInFlight.current = false;
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Gagal memuat diff.";
       setError(msg);
@@ -196,7 +206,7 @@ export default function DiffPage() {
     } finally {
       setLoading(false);
     }
-  }, [docId, versionId, toast]);
+  }, [docId, versionId, sessionKey, toast]);
 
   useEffect(() => {
     const token = localStorage.getItem("landy_token");
@@ -216,20 +226,24 @@ export default function DiffPage() {
 
   // Trigger analysis for the "to" version and navigate to ReviewPage on success.
   // The ref guard prevents a second in-flight call even before React re-renders.
+  // sessionStorage persists the in-flight state across page reloads.
   const handleTriggerAnalysis = useCallback(async () => {
-    if (!diff || analysisInFlight.current) return;
+    if (!diff || analysisInFlight.current || triggeringAnalysis) return;
     analysisInFlight.current = true;
+    sessionStorage.setItem(sessionKey, "1");
     setTriggeringAnalysis(true);
     try {
       const job = await triggerAnalysis(diff.to_version_id);
+      sessionStorage.removeItem(sessionKey);
       setLocation(`/review/${job.job_id}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Gagal memulai analisis.";
       toast({ title: "Gagal memulai analisis", description: msg, variant: "destructive" });
       analysisInFlight.current = false;
+      sessionStorage.removeItem(sessionKey);
       setTriggeringAnalysis(false);
     }
-  }, [diff, setLocation, toast]);
+  }, [diff, sessionKey, triggeringAnalysis, setLocation, toast]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
