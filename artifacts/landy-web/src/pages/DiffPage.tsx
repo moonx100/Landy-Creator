@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useLocation, useParams } from "wouter";
 import {
   getVersionDiff,
+  triggerAnalysis,
   VersionDiffResponse,
   VersionDiffRow,
 } from "@/lib/api";
@@ -18,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Scale, Loader2, AlertTriangle, Info,
-  PlusCircle, MinusCircle, RefreshCw, ArrowRight,
+  PlusCircle, MinusCircle, RefreshCw, ArrowRight, Sparkles,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -60,10 +61,12 @@ const MATERIALITY_CONFIG = {
 
 // ── Diff change card ──────────────────────────────────────────────────────────
 
-function DiffCard({ row, jobId, onNavigateReview }: {
+function DiffCard({ row, jobId, onNavigateReview, onStartAnalysis, triggeringAnalysis }: {
   row: VersionDiffRow;
   jobId: string | null;
   onNavigateReview: (clauseRef: string | null) => void;
+  onStartAnalysis: () => void;
+  triggeringAnalysis: boolean;
 }) {
   const mat = MATERIALITY_CONFIG[row.materiality] ?? MATERIALITY_CONFIG.immaterial;
   const kind = CHANGE_KIND_CONFIG[row.change_kind] ?? CHANGE_KIND_CONFIG.modified;
@@ -89,6 +92,21 @@ function DiffCard({ row, jobId, onNavigateReview }: {
             >
               Lihat Saran Negosiasi
               <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
+          {isMaterial && !jobId && (
+            <button
+              onClick={onStartAnalysis}
+              disabled={triggeringAnalysis}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary hover:underline transition-colors ml-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Analisis untuk versi ini belum selesai — klik untuk memulai analisis"
+            >
+              {triggeringAnalysis ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Sparkles className="w-3 h-3" />
+              )}
+              Mulai Analisis
             </button>
           )}
         </div>
@@ -157,6 +175,7 @@ export default function DiffPage() {
   const [diff, setDiff] = useState<VersionDiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [triggeringAnalysis, setTriggeringAnalysis] = useState(false);
 
   // Filter for material/immaterial sections
   const [showMaterialOnly, setShowMaterialOnly] = useState(false);
@@ -191,6 +210,20 @@ export default function DiffPage() {
       : base;
     setLocation(target);
   }, [diff, setLocation]);
+
+  // Trigger analysis for the "to" version and navigate to ReviewPage on success
+  const handleTriggerAnalysis = useCallback(async () => {
+    if (!diff || triggeringAnalysis) return;
+    setTriggeringAnalysis(true);
+    try {
+      const job = await triggerAnalysis(diff.to_version_id);
+      setLocation(`/review/${job.job_id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Gagal memulai analisis.";
+      toast({ title: "Gagal memulai analisis", description: msg, variant: "destructive" });
+      setTriggeringAnalysis(false);
+    }
+  }, [diff, triggeringAnalysis, setLocation, toast]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -233,8 +266,8 @@ export default function DiffPage() {
                 : "Perbandingan Versi"}
             </span>
           </div>
-          {/* CTA: jump directly to the analysis review for this version */}
-          {diff?.job_id && (
+          {/* CTA: jump to review if analysis exists, or start one if material changes present */}
+          {diff?.job_id ? (
             <Button
               size="sm"
               className="gap-1.5 text-xs shrink-0"
@@ -242,6 +275,22 @@ export default function DiffPage() {
             >
               Tinjau Analisis
               <ArrowRight className="w-3.5 h-3.5" />
+            </Button>
+          ) : diff && diff.material_count > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs shrink-0"
+              onClick={handleTriggerAnalysis}
+              disabled={triggeringAnalysis}
+              title="Analisis untuk versi ini belum selesai — klik untuk memulai"
+            >
+              {triggeringAnalysis ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              Mulai Analisis
             </Button>
           )}
         </div>
@@ -318,6 +367,34 @@ export default function DiffPage() {
               </div>
             </div>
 
+            {/* No-analysis prompt — shown when there are material changes but no completed job */}
+            {!diff.job_id && diff.material_count > 0 && (
+              <div className="flex items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 p-4">
+                <Sparkles className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-violet-900">
+                    Analisis belum tersedia untuk versi ini
+                  </p>
+                  <p className="text-xs text-violet-700 mt-0.5 leading-relaxed">
+                    Terdapat {diff.material_count} perubahan material yang perlu ditinjau. Mulai analisis untuk mendapatkan saran negosiasi dan identifikasi risiko.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-xs shrink-0 bg-violet-600 hover:bg-violet-700 text-white"
+                  onClick={handleTriggerAnalysis}
+                  disabled={triggeringAnalysis}
+                >
+                  {triggeringAnalysis ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  {triggeringAnalysis ? "Memulai…" : "Mulai Analisis"}
+                </Button>
+              </div>
+            )}
+
             {/* Change list */}
             {filteredDiffs.length > 0 ? (
               <div className="space-y-3">
@@ -335,6 +412,8 @@ export default function DiffPage() {
                       row={row}
                       jobId={diff.job_id}
                       onNavigateReview={handleNavigateReview}
+                      onStartAnalysis={handleTriggerAnalysis}
+                      triggeringAnalysis={triggeringAnalysis}
                     />
                   ))}
 
@@ -352,6 +431,8 @@ export default function DiffPage() {
                           row={row}
                           jobId={diff.job_id}
                           onNavigateReview={handleNavigateReview}
+                          onStartAnalysis={handleTriggerAnalysis}
+                          triggeringAnalysis={triggeringAnalysis}
                         />
                       ))}
                   </>
