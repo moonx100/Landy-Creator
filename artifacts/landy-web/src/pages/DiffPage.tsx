@@ -198,8 +198,8 @@ export default function DiffPage() {
   });
 
   const [triggeringAnalysis, setTriggeringAnalysis] = useState(initialTriggering);
-  // True only on the first render when we found an expired analysis entry.
-  const [analysisExpiredOnMount] = useState(initialExpiredOnMount);
+  // Persists until the creator acts (starts analysis); drives the inline amber warning.
+  const [showExpiredBanner, setShowExpiredBanner] = useState(initialExpiredOnMount);
 
   // Ref-based in-flight guard: prevents a second call from firing before the
   // first async call resolves, even if React hasn't re-rendered yet.
@@ -235,18 +235,7 @@ export default function DiffPage() {
     load();
   }, [load, setLocation]);
 
-  // Warn the creator if a previous analysis attempt timed out while they were away.
-  useEffect(() => {
-    if (!analysisExpiredOnMount) return;
-    toast({
-      title: "Analisis sebelumnya tidak selesai",
-      description:
-        "Sesi analisis sebelumnya habis waktu sebelum selesai. Silakan mulai analisis kembali.",
-      variant: "destructive",
-    });
-  // We only want this to run once on mount; toast is stable.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // (Expired-analysis notification is handled by the inline banner below; no toast needed.)
 
   // Navigate to ReviewPage, optionally passing a clause ref for deep-linking
   const handleNavigateReview = useCallback((clauseRef: string | null) => {
@@ -266,6 +255,7 @@ export default function DiffPage() {
     analysisInFlight.current = true;
     sessionStorage.setItem(sessionKey, String(Date.now() + ANALYSIS_TTL_MS));
     setTriggeringAnalysis(true);
+    setShowExpiredBanner(false); // creator acted — dismiss the persistent warning
     try {
       const job = await triggerAnalysis(diff.to_version_id);
       sessionStorage.removeItem(sessionKey);
@@ -421,8 +411,36 @@ export default function DiffPage() {
               </div>
             </div>
 
-            {/* No-analysis prompt — shown when there are material changes but no completed job */}
-            {!diff.job_id && diff.material_count > 0 && (
+            {/* Expired-analysis banner — persists until creator starts a new analysis */}
+            {!diff.job_id && diff.material_count > 0 && showExpiredBanner && (
+              <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-amber-900">
+                    Analisis sebelumnya tidak selesai
+                  </p>
+                  <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                    Sesi analisis sebelumnya habis waktu sebelum selesai. Mulai analisis kembali untuk mendapatkan saran negosiasi dan identifikasi risiko.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-xs shrink-0 bg-amber-600 hover:bg-amber-700 text-white"
+                  onClick={handleTriggerAnalysis}
+                  disabled={triggeringAnalysis}
+                >
+                  {triggeringAnalysis ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                  {triggeringAnalysis ? "Memulai…" : "Mulai Analisis"}
+                </Button>
+              </div>
+            )}
+
+            {/* No-analysis prompt — shown when there are material changes but no completed job and no expired banner */}
+            {!diff.job_id && diff.material_count > 0 && !showExpiredBanner && (
               <div className="flex items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 p-4">
                 <Sparkles className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
