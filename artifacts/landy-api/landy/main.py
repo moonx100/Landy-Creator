@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from landy.config import settings
 from landy.logging_setup import configure_logging, logger
 from landy.routes import health, auth
-from landy.routes import documents, analyses, exports
+from landy.routes import documents, analyses, exports, diffs
 
 configure_logging()
 
@@ -61,3 +61,4 @@ app.include_router(auth.router,       prefix="/api/auth")
 app.include_router(documents.router,  prefix="/api/documents",  tags=["documents"])
 app.include_router(analyses.router,   prefix="/api/analyses",   tags=["analyses"])
 app.include_router(exports.router,    prefix="/api",            tags=["exports"])
+app.include_router(diffs.router,      prefix="/api/documents",   tags=["diffs"])

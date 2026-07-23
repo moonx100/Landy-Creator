@@ -323,3 +323,48 @@ export async function exportEmailDraft(
   }
   return res.json();
 }
+
+// ── Version diff (Task 5) ─────────────────────────────────────────────────────
+
+export interface VersionDiffRow {
+  id: string;
+  from_version: string;
+  to_version: string;
+  clause_ref: string | null;
+  change_kind: 'added' | 'removed' | 'modified';
+  materiality: 'material' | 'immaterial';
+  materiality_reason: string | null;
+  before_text: string | null;
+  after_text: string | null;
+}
+
+export interface VersionDiffResponse {
+  from_version_id: string;
+  to_version_id: string;
+  from_version_no: number;
+  to_version_no: number;
+  total_changes: number;
+  material_count: number;
+  immaterial_count: number;
+  has_changes: boolean;
+  diffs: VersionDiffRow[];
+}
+
+/**
+ * Fetch the version diff between ver_id and its immediately prior version.
+ * Returns 404 (throws) when version is v1 or diff not yet computed.
+ */
+export async function getVersionDiff(
+  documentId: string,
+  versionId: string,
+): Promise<VersionDiffResponse> {
+  const res = await fetch(
+    `${DOCS_BASE}/${documentId}/versions/${versionId}/diff`,
+    { headers: getAuthHeaders() },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Gagal memuat diff versi.' }));
+    throw new Error(err.detail || 'Gagal memuat diff versi.');
+  }
+  return res.json();
+}

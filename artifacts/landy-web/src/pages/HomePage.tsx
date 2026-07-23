@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   Scale, LogOut, FileText, Upload, Plus, Trash2, Download,
-  Loader2, CheckCircle2, AlertTriangle, Clock, RefreshCw, Search,
+  Loader2, CheckCircle2, AlertTriangle, Clock, RefreshCw, Search, GitCompare,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -192,6 +192,12 @@ export default function HomePage() {
     setLocation(`/review/${job.job_id}`);
   };
 
+  const handleViewDiff = (doc: DocumentListItem) => {
+    const ver = doc.latest_version;
+    if (!ver || ver.version_no <= 1) return;
+    setLocation(`/documents/${doc.id}/versions/${ver.id}/diff`);
+  };
+
   if (pageLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -347,6 +353,20 @@ export default function HomePage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
+                        {/* Diff button — when version_no > 1 and analysis done */}
+                        {doc.latest_job?.state === "done" &&
+                          doc.latest_version &&
+                          doc.latest_version.version_no > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 text-xs h-8 text-muted-foreground hover:text-foreground"
+                            title="Lihat perubahan dari versi sebelumnya"
+                            onClick={() => handleViewDiff(doc)}
+                          >
+                            <GitCompare className="w-3.5 h-3.5" />Perubahan
+                          </Button>
+                        )}
                         {/* Review button — available when analysis is done */}
                         {doc.latest_job?.state === "done" && (
                           <Button

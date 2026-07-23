@@ -197,6 +197,37 @@ def _process_job(job_id: str, version_id: str, user_id: str) -> None:
 
     logger.info("clauses_saved", version_id=version_id, count=len(clauses))
 
+    # ── 4.5. Version diff (if version_no > 1) ────────────────────────────────
+    # Runs after segmentation so both versions have clauses; uses non-redacted
+    # text so the user sees the real diff. Non-fatal: errors are logged and the
+    # job continues.
+    if version_row:  # always true here; guard for type narrowing
+        with engine.begin() as conn:
+            conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+            vno_row = conn.execute(
+                sa.text("SELECT version_no FROM document_versions WHERE id = :vid"),
+                {"vid": version_id},
+            ).fetchone()
+
+        if vno_row and vno_row.version_no > 1:
+            try:
+                from landy.diff.pipeline import run_diff
+                diff_rows = run_diff(
+                    to_version_id=version_id,
+                    job_id=job_id,
+                    user_id=user_id,
+                    set_stage_fn=lambda s: _set_stage(job_id, s),
+                )
+                logger.info("version_diff_done", job_id=job_id, rows=diff_rows)
+            except Exception as exc:
+                logger.error(
+                    "version_diff_error",
+                    job_id=job_id,
+                    version_id=version_id,
+                    error=str(exc),
+                )
+                # Non-fatal — continue with the rest of the pipeline
+
     # ── 5. Redact PII ─────────────────────────────────────────────────────────
     _set_stage(job_id, "Menyunting informasi pribadi")
     redaction_result = redact(result.text)
