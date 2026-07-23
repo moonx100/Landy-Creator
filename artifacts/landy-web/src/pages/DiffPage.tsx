@@ -182,17 +182,25 @@ export default function DiffPage() {
   const sessionKey = `landy_analysis_pending_${versionId}`;
   const ANALYSIS_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-  const [triggeringAnalysis, setTriggeringAnalysis] = useState(() => {
+  // Compute both initial values in a single sessionStorage read so we can
+  // detect an expired entry without a second pass (the first read removes it).
+  const [{ initialTriggering, initialExpiredOnMount }] = useState(() => {
     const raw = sessionStorage.getItem(sessionKey);
-    if (!raw) return false;
+    if (!raw) return { initialTriggering: false, initialExpiredOnMount: false };
     const expiry = Number(raw);
     if (isNaN(expiry) || Date.now() > expiry) {
-      // Expired or malformed entry — clear it so the button re-enables.
+      // Expired or malformed entry — clear it so the button re-enables and
+      // remember that it expired so we can warn the creator on mount.
       sessionStorage.removeItem(sessionKey);
-      return false;
+      return { initialTriggering: false, initialExpiredOnMount: true };
     }
-    return true;
+    return { initialTriggering: true, initialExpiredOnMount: false };
   });
+
+  const [triggeringAnalysis, setTriggeringAnalysis] = useState(initialTriggering);
+  // True only on the first render when we found an expired analysis entry.
+  const [analysisExpiredOnMount] = useState(initialExpiredOnMount);
+
   // Ref-based in-flight guard: prevents a second call from firing before the
   // first async call resolves, even if React hasn't re-rendered yet.
   const analysisInFlight = useRef(false);
@@ -226,6 +234,19 @@ export default function DiffPage() {
     if (!token) { setLocation("/login"); return; }
     load();
   }, [load, setLocation]);
+
+  // Warn the creator if a previous analysis attempt timed out while they were away.
+  useEffect(() => {
+    if (!analysisExpiredOnMount) return;
+    toast({
+      title: "Analisis sebelumnya tidak selesai",
+      description:
+        "Sesi analisis sebelumnya habis waktu sebelum selesai. Silakan mulai analisis kembali.",
+      variant: "destructive",
+    });
+  // We only want this to run once on mount; toast is stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Navigate to ReviewPage, optionally passing a clause ref for deep-linking
   const handleNavigateReview = useCallback((clauseRef: string | null) => {
