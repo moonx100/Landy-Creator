@@ -1,0 +1,121 @@
+# LANDY Creator — local development and VPS deployment
+#
+# Services:
+#   db       — PostgreSQL 15 with pgvector extension
+#   minio    — S3-compatible object storage (Class B bucket: user contracts)
+#   api      — FastAPI application
+#   worker   — Background job processor (document pipeline, Task #2)
+#
+# Usage:
+#   cp .env.example .env          # fill in secrets
+#   docker-compose up             # start all services
+#   docker-compose run api alembic upgrade head   # apply migrations
+#
+# Portability:
+#   This file runs identically on macOS (dev), Linux (VPS Jakarta), and Replit.
+#   Change only .env to switch between MinIO (dev) and an Indonesian S3 provider.
+
+version: "3.9"
+
+services:
+
+  # ── PostgreSQL with pgvector ─────────────────────────────────────────────────
+  db:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: landy
+      POSTGRES_PASSWORD: landy
+      POSTGRES_DB: landy
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U landy -d landy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MinIO — S3-compatible object storage ─────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO console (dev only)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI application ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./artifacts/landy-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://landy:landy@db:5432/landy
+      SESSION_SECRET: ${SESSION_SECRET}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-720}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET_CLASS_B: ${S3_BUCKET_CLASS_B:-landy-contracts}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      ADMIN_SECRET: ${ADMIN_SECRET}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      DEFAULT_ANALYSES_QUOTA: ${DEFAULT_ANALYSES_QUOTA:-8}
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── Background worker ─────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: ./artifacts/landy-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    environment:
+      DATABASE_URL: postgresql://landy:landy@db:5432/landy
+      SESSION_SECRET: ${SESSION_SECRET}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET_CLASS_B: ${S3_BUCKET_CLASS_B:-landy-contracts}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+volumes:
+  db_data:
+  minio_data:

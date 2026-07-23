@@ -1,0 +1,1 @@
+- [Replit DB superuser RLS constraint](rls-superuser-constraint.md) — DATABASE_URL is a Postgres superuser; bypassrls=True; explicit WHERE user_id=:uid is the real isolation layer.

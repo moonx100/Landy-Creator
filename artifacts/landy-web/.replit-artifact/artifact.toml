@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "LANDY Creator"
+version = "1.0.0"
+id = "artifacts/landy-web"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24762
+
+[services.development]
+run = "pnpm --filter @workspace/landy-web run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/landy-web", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/landy-web/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24762"
+BASE_PATH = "/"
