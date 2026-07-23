@@ -188,7 +188,17 @@ export async function getDownloadUrl(documentId: string, versionId: string): Pro
   return data.url as string;
 }
 
-// ── Analysis result types (Task 3) ────────────────────────────────────────────
+// ── Analysis result types ─────────────────────────────────────────────────────
+
+/** One comment bubble extracted from a DOCX file. */
+export interface DocCommentResponse {
+  id: string;
+  author: string | null;
+  comment_date: string | null;   // ISO-8601 string from w:date attribute
+  anchor_text: string | null;    // text the comment is anchored to in the doc
+  body: string;
+  ordinal: number;
+}
 
 export interface CitationResponse {
   id: string;
@@ -229,6 +239,10 @@ export interface AnalysisResultsResponse {
   error_message: string | null;
   risk_flags: RiskFlagResponse[];
   flag_counts: { critical: number; high: number; medium: number; info: number };
+  /** Comment bubbles extracted from the DOCX file (empty for PDFs / no-comment docs). */
+  document_comments: DocCommentResponse[];
+  /** Whether the DOCX contained unaccepted tracked changes. */
+  has_tracked_changes: boolean;
 }
 
 // ── Analysis API ──────────────────────────────────────────────────────────────
@@ -350,6 +364,12 @@ export interface VersionDiffResponse {
   diffs: VersionDiffRow[];
   /** Completed analysis job for the "to" version, if one exists. */
   job_id: string | null;
+  /**
+   * How the diff was produced:
+   *   'tracked_changes' — from <w:ins>/<w:del> marks in the DOCX.
+   *   'text_diff'       — from clause-level textual comparison between versions.
+   */
+  diff_source: 'tracked_changes' | 'text_diff';
 }
 
 /**

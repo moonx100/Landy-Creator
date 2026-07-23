@@ -26,6 +26,7 @@ from landy.models.documents import (
     AnalysisResultsResponse,
     CitationResponse,
     CreateAnalysisRequest,
+    DocCommentResponse,
     RiskFlagResponse,
     SuggestedEditResponse,
 )
@@ -231,6 +232,39 @@ def get_analysis_results(
             )
         )
 
+    # Fetch document comments for the version (empty for PDFs / no-comment docs)
+    version_id_str = str(job_row.version_id)
+    comment_rows = conn.execute(
+        sa.text(
+            "SELECT id, author, comment_date, anchor_text, body, ordinal "
+            "FROM document_comments "
+            "WHERE version_id = :vid "
+            "ORDER BY ordinal ASC"
+        ),
+        {"vid": version_id_str},
+    ).fetchall()
+
+    doc_comments = [
+        DocCommentResponse(
+            id=c.id,
+            author=c.author,
+            comment_date=c.comment_date,
+            anchor_text=c.anchor_text,
+            body=c.body,
+            ordinal=c.ordinal,
+        )
+        for c in comment_rows
+    ]
+
+    # Fetch has_tracked_changes for the version
+    tc_row = conn.execute(
+        sa.text(
+            "SELECT has_tracked_changes FROM document_versions WHERE id = :vid"
+        ),
+        {"vid": version_id_str},
+    ).fetchone()
+    has_tracked_changes = bool(tc_row and tc_row.has_tracked_changes)
+
     return AnalysisResultsResponse(
         job_id=job_row.id,
         version_id=job_row.version_id,
@@ -239,4 +273,6 @@ def get_analysis_results(
         stage=job_row.stage,
         error_message=job_row.error_message,
         risk_flags=flags,
+        document_comments=doc_comments,
+        has_tracked_changes=has_tracked_changes,
     )

@@ -197,6 +197,71 @@ def _process_job(job_id: str, version_id: str, user_id: str) -> None:
 
     logger.info("clauses_saved", version_id=version_id, count=len(clauses))
 
+    # ── 2.5. Parse DOCX tracked changes + comment bubbles ────────────────────
+    # DOCX-only — PDFs have no standardised revision-mark format.
+    # Non-fatal: any failure is logged and the pipeline continues unaffected.
+    _tc_result = None
+    if result.source_format == "docx" and result.extraction_ok:
+        _set_stage(job_id, "Membaca track changes dan komentar dari DOCX")
+        try:
+            from landy.tracked_changes import parse_tracked_changes
+            from landy.doc_comments import parse_comments
+
+            _tc_result = parse_tracked_changes(file_bytes)
+            _comments_result = parse_comments(file_bytes)
+
+            # Persist has_tracked_changes flag on the version row
+            with engine.begin() as conn:
+                conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+                conn.execute(
+                    sa.text(
+                        "UPDATE document_versions "
+                        "SET has_tracked_changes = :htc WHERE id = :vid"
+                    ),
+                    {"htc": _tc_result.has_changes, "vid": version_id},
+                )
+
+            # Persist extracted comment bubbles (idempotent via DELETE+INSERT)
+            if _comments_result.comments:
+                with engine.begin() as conn:
+                    conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+                    # Delete any prior comments for this version (idempotent re-run)
+                    conn.execute(
+                        sa.text("DELETE FROM document_comments WHERE version_id = :vid"),
+                        {"vid": version_id},
+                    )
+                    for c in _comments_result.comments:
+                        conn.execute(
+                            sa.text(
+                                "INSERT INTO document_comments "
+                                "(version_id, author, comment_date, anchor_text, body, ordinal) "
+                                "VALUES (:vid, :auth, :cdate, :anchor, :body, :ord)"
+                            ),
+                            {
+                                "vid": version_id,
+                                "auth": (c.author or "")[:255] or None,
+                                "cdate": (c.date or "")[:64] or None,
+                                "anchor": c.anchor_text[:2000] if c.anchor_text else None,
+                                "body": c.body[:4000],
+                                "ord": int(c.comment_id) if c.comment_id.isdigit() else 0,
+                            },
+                        )
+
+            logger.info(
+                "docx_tc_comments_parsed",
+                version_id=version_id,
+                has_tc=_tc_result.has_changes,
+                tc_count=len(_tc_result.changes),
+                comments_count=len(_comments_result.comments),
+            )
+        except Exception as exc:
+            logger.error(
+                "docx_tc_comments_error",
+                version_id=version_id,
+                error=str(exc),
+            )
+            _tc_result = None  # fall back to text-level diff
+
     # ── 4.5. Version diff (if version_no > 1) ────────────────────────────────
     # Runs after segmentation so both versions have clauses; uses non-redacted
     # text so the user sees the real diff. Non-fatal: errors are logged and the
@@ -217,6 +282,7 @@ def _process_job(job_id: str, version_id: str, user_id: str) -> None:
                     job_id=job_id,
                     user_id=user_id,
                     set_stage_fn=lambda s: _set_stage(job_id, s),
+                    tracked_changes=_tc_result,
                 )
                 logger.info("version_diff_done", job_id=job_id, rows=diff_rows)
             except Exception as exc:

@@ -103,6 +103,18 @@ class PresignedDownloadResponse(pydantic.BaseModel):
     expires_in_seconds: int = 600
 
 
+# ── Document comment response ─────────────────────────────────────────────────
+
+class DocCommentResponse(pydantic.BaseModel):
+    """One comment bubble extracted from a DOCX file."""
+    id: UUID
+    author: Optional[str]
+    comment_date: Optional[str]   # ISO-8601 string from w:date attribute
+    anchor_text: Optional[str]    # text the comment is attached to in the document
+    body: str
+    ordinal: int
+
+
 # ── Analysis results ──────────────────────────────────────────────────────────
 # Used by GET /api/analyses/{job_id}/results
 
@@ -148,6 +160,12 @@ class AnalysisResultsResponse(pydantic.BaseModel):
     stage: Optional[str]
     error_message: Optional[str]
     risk_flags: list[RiskFlagResponse]
+    # Comments extracted from DOCX comment bubbles for this version.
+    # Empty list when the document is a PDF, has no comments, or comment
+    # parsing failed (non-fatal).
+    document_comments: list[DocCommentResponse] = []
+    # Whether the document contained unaccepted tracked changes.
+    has_tracked_changes: bool = False
 
     @pydantic.computed_field
     @property

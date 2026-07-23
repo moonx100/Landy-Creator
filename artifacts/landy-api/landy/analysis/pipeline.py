@@ -97,6 +97,33 @@ def _fetch_clauses(version_id: str) -> list[ClauseRow]:
             for r in rows]
 
 
+def _fetch_comments(version_id: str) -> list[dict]:
+    """Fetch document comment bubbles for a version, ordered by ordinal.
+
+    Returns an empty list when no comments exist (PDF, no bubbles, or parse
+    failure during extraction — all of which set no rows in document_comments).
+    """
+    with _wconn() as conn:
+        _set_worker_rls(conn)
+        rows = conn.execute(
+            sa.text(
+                "SELECT author, comment_date, anchor_text, body, ordinal "
+                "FROM document_comments "
+                "WHERE version_id = :vid "
+                "ORDER BY ordinal ASC"
+            ),
+            {"vid": version_id},
+        ).fetchall()
+    return [
+        {
+            "author": r.author,
+            "anchor_text": r.anchor_text,
+            "body": r.body,
+        }
+        for r in rows
+    ]
+
+
 def _filter_clauses(clauses: list[ClauseRow], domain: Domain) -> list[ClauseRow]:
     """Return clauses matching any domain keyword (case-insensitive).
     Falls back to ALL clauses if none match (so domain always sees something)."""
@@ -168,10 +195,23 @@ def _build_summary(clauses: list[ClauseRow]) -> str:
 
 # ── Domain analysis ───────────────────────────────────────────────────────────
 
+def _format_comments(comments: list[dict], max_comments: int = 20) -> str:
+    """Format extracted document comments for inclusion in the LLM prompt."""
+    if not comments:
+        return ""
+    lines: list[str] = []
+    for c in comments[:max_comments]:
+        author_label = f"[{c['author']}]" if c.get("author") else "[Tanpa nama]"
+        anchor = f" (terkait teks: \"{c['anchor_text'][:120]}\")" if c.get("anchor_text") else ""
+        lines.append(f"- {author_label}: {c['body']}{anchor}")
+    return "\n".join(lines)
+
+
 def _call_domain(
     domain: Domain,
     summary: str,
     clauses: list[ClauseRow],
+    comments: list[dict] | None = None,
 ) -> DomainResult:
     """Call LLM for one domain and return a parsed DomainResult.
 
@@ -194,8 +234,17 @@ def _call_domain(
     user_msg = (
         f"Ringkasan Dokumen:\n{summary}\n\n"
         f"Klausul-Klausul yang Relevan dengan Domain '{domain.name}':\n{clauses_text}\n\n"
-        f"Analisis kontrak ini untuk domain: {domain.name} (key: {domain.key})"
     )
+
+    # Include comment bubbles so the LLM can flag concerns raised in comments
+    if comments:
+        comment_text = _format_comments(comments)
+        user_msg += (
+            f"Komentar yang Ditambahkan oleh Pihak Lain dalam Dokumen:\n"
+            f"{comment_text}\n\n"
+        )
+
+    user_msg += f"Analisis kontrak ini untuk domain: {domain.name} (key: {domain.key})"
 
     messages = [
         {"role": "system", "content": domain.system_prompt},
@@ -420,6 +469,15 @@ def run_analysis(
         logger.warning("analysis_no_clauses", version_id=version_id)
         # Still run all 18 domains; the always-evaluated ones will get 'absent' findings
 
+    # Fetch comment bubbles — empty list for PDFs / no-comment documents
+    comments = _fetch_comments(version_id)
+    if comments:
+        logger.info(
+            "analysis_comments_loaded",
+            version_id=version_id,
+            count=len(comments),
+        )
+
     set_stage_fn("Membangun ringkasan dokumen")
     summary = _build_summary(clauses)
     logger.info("summary_built", version_id=version_id, length=len(summary))
@@ -433,7 +491,7 @@ def run_analysis(
         logger.info("domain_analysis_start", domain=domain.key, version_id=version_id)
 
         try:
-            result = _call_domain(domain, summary, clauses)
+            result = _call_domain(domain, summary, clauses, comments=comments)
             _persist_domain_result(domain, result, clauses, version_id, job_id, user_id)
             domains_ok += 1
             logger.info(

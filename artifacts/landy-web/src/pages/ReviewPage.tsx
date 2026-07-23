@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Scale, ChevronLeft, AlertTriangle, Info, Check, X, Minus,
   FileDown, Mail, Copy, Loader2, ChevronDown, ChevronUp, RefreshCw,
+  MessageSquare, GitBranch,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -544,6 +545,20 @@ export default function ReviewPage() {
         </div>
       )}
 
+      {/* Tracked-changes notice */}
+      {results.has_tracked_changes && (
+        <div className="bg-violet-50 border-b border-violet-200 px-4 py-2">
+          <p className="text-xs text-violet-800 max-w-screen-xl mx-auto flex items-center gap-1.5">
+            <GitBranch className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              <strong>Dokumen mengandung Track Changes.</strong>{" "}
+              Perubahan yang dilacak digunakan sebagai sumber perbandingan versi — LANDY membaca
+              revisi asli dari dokumen, bukan teks yang sudah diterima.
+            </span>
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-1 max-w-screen-xl mx-auto w-full overflow-hidden" style={{ height: "calc(100vh - 8rem)" }}>
 
         {/* ── Left panel: flag list ─────────────────────────────────────────── */}
@@ -664,18 +679,71 @@ export default function ReviewPage() {
           />
         </aside>
 
-        {/* ── Right panel: flag detail ─────────────────────────────────────── */}
-        <main className="flex-1 overflow-y-auto p-6">
+        {/* ── Right panel: flag detail + comments ─────────────────────────── */}
+        <main className="flex-1 overflow-y-auto p-6 space-y-6">
           {selectedFlag ? (
             <FlagDetail
               flag={selectedFlag as Parameters<typeof FlagDetail>[0]["flag"]}
               onEditChange={handleEditChange}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground gap-2">
+            <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-2">
               <Scale className="w-10 h-10 text-primary/30" />
               <p className="text-sm">Pilih temuan risiko di panel kiri untuk melihat detailnya.</p>
             </div>
+          )}
+
+          {/* Catatan dari Pihak Lain — comment bubbles extracted from DOCX */}
+          {results.document_comments.length > 0 && (
+            <section aria-labelledby="comments-heading">
+              <div className="flex items-center gap-2 mb-3">
+                <MessageSquare className="w-4 h-4 text-muted-foreground" />
+                <h2 id="comments-heading" className="text-sm font-semibold">
+                  Catatan dari Pihak Lain
+                </h2>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {results.document_comments.length} komentar
+                </span>
+              </div>
+              <div className="space-y-3">
+                {results.document_comments.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-md border border-border bg-card p-4 space-y-2"
+                  >
+                    {/* Author + date header */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-200">
+                        <MessageSquare className="w-2.5 h-2.5" />
+                        {c.author ?? "Tanpa nama"}
+                      </span>
+                      {c.comment_date && (
+                        <span className="text-xs text-muted-foreground">
+                          {c.comment_date.slice(0, 10)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Anchor text — the clause/sentence the comment is attached to */}
+                    {c.anchor_text && (
+                      <blockquote className="border-l-2 border-violet-300 pl-3 text-xs text-muted-foreground italic leading-relaxed">
+                        {c.anchor_text.length > 200
+                          ? c.anchor_text.slice(0, 200) + "…"
+                          : c.anchor_text}
+                      </blockquote>
+                    )}
+
+                    {/* Comment body */}
+                    <p className="text-sm leading-relaxed">{c.body}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+                <Info className="w-3 h-3 inline mr-1" />
+                Komentar-komentar ini diekstrak dari bubble komentar dalam file DOCX yang diunggah.
+                Komentar sudah dipertimbangkan dalam analisis risiko di atas.
+              </p>
+            </section>
           )}
         </main>
       </div>

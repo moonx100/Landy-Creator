@@ -35,6 +35,10 @@ class VersionDiffResponse(pydantic.BaseModel):
     diffs: list[VersionDiffRow]  # material changes first, then immaterial
     # Completed analysis job for to_version, if one exists.
     job_id: Optional[str] = None
+    # How the diff was produced:
+    #   'tracked_changes' — from <w:ins>/<w:del> marks in the DOCX
+    #   'text_diff'       — from clause-level textual comparison between versions
+    diff_source: str = "text_diff"
 
     @pydantic.computed_field
     @property

@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Scale, Loader2, AlertTriangle, Info,
   PlusCircle, MinusCircle, RefreshCw, ArrowRight, Sparkles, X,
+  GitBranch,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -407,6 +408,24 @@ export default function DiffPage() {
                   Perubahan <strong>material</strong> menggeser posisi hukum Anda secara nyata.
                   Perubahan <strong>tidak material</strong> bersifat redaksional.
                   Klasifikasi dilakukan oleh AI — selalu verifikasi dengan advokat sebelum menandatangani.
+                </p>
+              </div>
+
+              {/* Diff source label */}
+              <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border">
+                <GitBranch className="w-3 h-3 text-muted-foreground shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  {diff.diff_source === "tracked_changes" ? (
+                    <>
+                      <strong>Berdasarkan Track Changes dalam dokumen</strong> —
+                      perubahan diambil langsung dari revisi yang ditandai dalam file DOCX.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Berdasarkan perbandingan teks antar versi</strong> —
+                      perubahan dihitung dari perbedaan klausul antara versi sebelumnya dan versi ini.
+                    </>
+                  )}
                 </p>
               </div>
             </div>

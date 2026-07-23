@@ -103,6 +103,19 @@ def get_version_diff(
         {"fv": str(prior_row.id), "tv": ver_id},
     ).fetchall()
 
+    # ── Fetch has_tracked_changes for the to_version ──────────────────────────
+    tc_row = conn.execute(
+        sa.text(
+            "SELECT has_tracked_changes FROM document_versions WHERE id = :vid"
+        ),
+        {"vid": ver_id},
+    ).fetchone()
+    diff_source = (
+        "tracked_changes"
+        if tc_row and tc_row.has_tracked_changes
+        else "text_diff"
+    )
+
     if not diff_rows:
         raise HTTPException(
             status_code=404,
@@ -159,4 +172,5 @@ def get_version_diff(
         immaterial_count=len(diffs) - material_count,
         diffs=diffs,
         job_id=job_id,
+        diff_source=diff_source,
     )
