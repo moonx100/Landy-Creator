@@ -348,6 +348,8 @@ export interface VersionDiffResponse {
   immaterial_count: number;
   has_changes: boolean;
   diffs: VersionDiffRow[];
+  /** Completed analysis job for the "to" version, if one exists. */
+  job_id: string | null;
 }
 
 /**

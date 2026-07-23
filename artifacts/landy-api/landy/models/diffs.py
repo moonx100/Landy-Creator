@@ -33,6 +33,8 @@ class VersionDiffResponse(pydantic.BaseModel):
     material_count: int
     immaterial_count: int
     diffs: list[VersionDiffRow]  # material changes first, then immaterial
+    # Completed analysis job for to_version, if one exists.
+    job_id: Optional[str] = None
 
     @pydantic.computed_field
     @property

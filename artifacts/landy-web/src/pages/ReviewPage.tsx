@@ -344,6 +344,16 @@ export default function ReviewPage() {
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailDraft, setEmailDraft] = useState<string | null>(null);
 
+  // Deep-link context: when arriving from DiffPage with ?clauseRef=<ref>
+  const [incomingClauseRef, setIncomingClauseRef] = useState<string | null>(null);
+
+  // Parse clauseRef query param once on mount
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
+    const ref = search.get("clauseRef");
+    if (ref) setIncomingClauseRef(ref);
+  }, []);
+
   // ── Load results ─────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
@@ -351,9 +361,24 @@ export default function ReviewPage() {
       const data = await getAnalysisResults(jobId);
       setResults(data);
       setFlags(data.risk_flags as typeof flags);
-      // Default-select the first critical/high flag
-      const firstFlag = data.risk_flags[0];
-      if (firstFlag) setSelectedFlagId(firstFlag.id);
+
+      // If a clauseRef was passed from DiffPage, try to find a matching flag
+      const search = new URLSearchParams(window.location.search);
+      const ref = search.get("clauseRef");
+      if (ref) {
+        const refLower = ref.toLowerCase();
+        const matched = data.risk_flags.find((f) =>
+          f.summary.toLowerCase().includes(refLower) ||
+          f.rationale.toLowerCase().includes(refLower)
+        );
+        // Select matched flag or fall back to first flag
+        const target = matched ?? data.risk_flags[0];
+        if (target) setSelectedFlagId(target.id);
+      } else {
+        // Default-select the first flag
+        const firstFlag = data.risk_flags[0];
+        if (firstFlag) setSelectedFlagId(firstFlag.id);
+      }
     } catch (err: unknown) {
       toast({
         title: "Gagal memuat hasil",
@@ -529,6 +554,15 @@ export default function ReviewPage() {
                 <RefreshCw className="w-3.5 h-3.5" />
               </Button>
             </div>
+            {/* Contextual banner when navigating here from a diff card */}
+            {incomingClauseRef && (
+              <div className="mt-2 flex items-center gap-1.5 rounded bg-primary/10 border border-primary/20 px-2.5 py-1.5">
+                <Info className="w-3 h-3 text-primary shrink-0" />
+                <p className="text-xs text-primary leading-tight">
+                  Dari perubahan: <span className="font-medium">{incomingClauseRef}</span>
+                </p>
+              </div>
+            )}
             {results.flag_counts && (
               <div className="flex gap-2 mt-2 flex-wrap">
                 {(["critical", "high", "medium", "info"] as const).map((s) => {

@@ -129,6 +129,17 @@ def get_version_diff(
 
     material_count = sum(1 for d in diffs if d.materiality == "material")
 
+    # ── Resolve the analysis job for the "to" version ─────────────────────────
+    job_row = conn.execute(
+        sa.text(
+            "SELECT id FROM analysis_jobs "
+            "WHERE version_id = :ver_id AND user_id = :uid AND state = 'done' "
+            "ORDER BY created_at DESC LIMIT 1"
+        ),
+        {"ver_id": ver_id, "uid": uid},
+    ).fetchone()
+    job_id = str(job_row.id) if job_row else None
+
     logger.info(
         "version_diff_fetched",
         doc_id=doc_id,
@@ -147,4 +158,5 @@ def get_version_diff(
         material_count=material_count,
         immaterial_count=len(diffs) - material_count,
         diffs=diffs,
+        job_id=job_id,
     )

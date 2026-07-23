@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Scale, Loader2, AlertTriangle, Info,
-  PlusCircle, MinusCircle, RefreshCw,
+  PlusCircle, MinusCircle, RefreshCw, ArrowRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -60,10 +60,15 @@ const MATERIALITY_CONFIG = {
 
 // ── Diff change card ──────────────────────────────────────────────────────────
 
-function DiffCard({ row }: { row: VersionDiffRow }) {
+function DiffCard({ row, jobId, onNavigateReview }: {
+  row: VersionDiffRow;
+  jobId: string | null;
+  onNavigateReview: (clauseRef: string | null) => void;
+}) {
   const mat = MATERIALITY_CONFIG[row.materiality] ?? MATERIALITY_CONFIG.immaterial;
   const kind = CHANGE_KIND_CONFIG[row.change_kind] ?? CHANGE_KIND_CONFIG.modified;
   const KindIcon = kind.icon;
+  const isMaterial = row.materiality === "material";
 
   return (
     <div className={`rounded-md border border-border ${mat.sectionClass} overflow-hidden`}>
@@ -76,6 +81,16 @@ function DiffCard({ row }: { row: VersionDiffRow }) {
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge className={`text-xs border ${kind.badgeClass}`}>{kind.label}</Badge>
           <Badge className={`text-xs border ${mat.badgeClass}`}>{mat.label}</Badge>
+          {isMaterial && jobId && (
+            <button
+              onClick={() => onNavigateReview(row.clause_ref)}
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80 hover:underline transition-colors ml-1"
+              title="Lihat saran negosiasi untuk klausul ini"
+            >
+              Lihat Saran Negosiasi
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -167,6 +182,16 @@ export default function DiffPage() {
     load();
   }, [load, setLocation]);
 
+  // Navigate to ReviewPage, optionally passing a clause ref for deep-linking
+  const handleNavigateReview = useCallback((clauseRef: string | null) => {
+    if (!diff?.job_id) return;
+    const base = `/review/${diff.job_id}`;
+    const target = clauseRef
+      ? `${base}?clauseRef=${encodeURIComponent(clauseRef)}`
+      : base;
+    setLocation(target);
+  }, [diff, setLocation]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const filteredDiffs = diff
@@ -208,6 +233,17 @@ export default function DiffPage() {
                 : "Perbandingan Versi"}
             </span>
           </div>
+          {/* CTA: jump directly to the analysis review for this version */}
+          {diff?.job_id && (
+            <Button
+              size="sm"
+              className="gap-1.5 text-xs shrink-0"
+              onClick={() => handleNavigateReview(null)}
+            >
+              Tinjau Analisis
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Button>
+          )}
         </div>
       </header>
 
@@ -294,7 +330,12 @@ export default function DiffPage() {
                 {filteredDiffs
                   .filter((d) => showMaterialOnly || d.materiality === "material")
                   .map((row) => (
-                    <DiffCard key={row.id} row={row} />
+                    <DiffCard
+                      key={row.id}
+                      row={row}
+                      jobId={diff.job_id}
+                      onNavigateReview={handleNavigateReview}
+                    />
                   ))}
 
                 {/* Immaterial section header */}
@@ -306,7 +347,12 @@ export default function DiffPage() {
                     {filteredDiffs
                       .filter((d) => d.materiality === "immaterial")
                       .map((row) => (
-                        <DiffCard key={row.id} row={row} />
+                        <DiffCard
+                          key={row.id}
+                          row={row}
+                          jobId={diff.job_id}
+                          onNavigateReview={handleNavigateReview}
+                        />
                       ))}
                   </>
                 )}
