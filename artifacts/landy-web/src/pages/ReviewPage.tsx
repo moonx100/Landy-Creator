@@ -16,6 +16,7 @@ import {
   AnalysisResultsResponse, RiskFlagResponse, SuggestedEditResponse,
 } from "@/lib/api";
 import { DisclaimerBanner } from "@/components/DisclaimerBanner";
+import { DokumenLegalitasPanel } from "@/components/DokumenLegalitasPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -655,6 +656,12 @@ export default function ReviewPage() {
               </div>
             )}
           </div>
+
+          {/* Dokumen Legalitas Pihak Lain — collapsible checklist at sidebar bottom */}
+          <DokumenLegalitasPanel
+            documentId={results.document_id}
+            versionId={results.version_id}
+          />
         </aside>
 
         {/* ── Right panel: flag detail ─────────────────────────────────────── */}
