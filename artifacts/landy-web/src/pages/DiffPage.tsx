@@ -176,10 +176,23 @@ export default function DiffPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Initialise from sessionStorage so the button stays suppressed across reloads.
+  // The stored value is a numeric timestamp (ms) representing when the flag expires.
+  // A 10-minute TTL prevents the spinner from persisting forever if the backend
+  // silently fails to return a job_id or throw an error.
   const sessionKey = `landy_analysis_pending_${versionId}`;
-  const [triggeringAnalysis, setTriggeringAnalysis] = useState(
-    () => sessionStorage.getItem(sessionKey) === "1"
-  );
+  const ANALYSIS_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+  const [triggeringAnalysis, setTriggeringAnalysis] = useState(() => {
+    const raw = sessionStorage.getItem(sessionKey);
+    if (!raw) return false;
+    const expiry = Number(raw);
+    if (isNaN(expiry) || Date.now() > expiry) {
+      // Expired or malformed entry — clear it so the button re-enables.
+      sessionStorage.removeItem(sessionKey);
+      return false;
+    }
+    return true;
+  });
   // Ref-based in-flight guard: prevents a second call from firing before the
   // first async call resolves, even if React hasn't re-rendered yet.
   const analysisInFlight = useRef(false);
@@ -230,7 +243,7 @@ export default function DiffPage() {
   const handleTriggerAnalysis = useCallback(async () => {
     if (!diff || analysisInFlight.current || triggeringAnalysis) return;
     analysisInFlight.current = true;
-    sessionStorage.setItem(sessionKey, "1");
+    sessionStorage.setItem(sessionKey, String(Date.now() + ANALYSIS_TTL_MS));
     setTriggeringAnalysis(true);
     try {
       const job = await triggerAnalysis(diff.to_version_id);
