@@ -188,6 +188,48 @@ export async function getDownloadUrl(documentId: string, versionId: string): Pro
   return data.url as string;
 }
 
+// ── Analysis result types (Task 3) ────────────────────────────────────────────
+
+export interface CitationResponse {
+  id: string;
+  provision_id: string | null;  // always null in v1 — corpus not yet populated
+  citation_text: string | null; // always null in v1
+  basis: string | null;         // 'statutory' | 'doctrinal'
+}
+
+export interface SuggestedEditResponse {
+  id: string;
+  clause_id: string | null;
+  original_text: string;
+  revised_text: string;
+  comment: string | null;
+  accepted: boolean | null;  // null = undecided; true/false = user's choice before export
+}
+
+export interface RiskFlagResponse {
+  id: string;
+  clause_id: string | null;
+  domain: string;        // taxonomy key, e.g. 'ip_ownership'
+  severity: string;      // 'critical' | 'high' | 'medium' | 'info'
+  finding_type: string;  // 'present_risky' | 'absent' | 'ambiguous'
+  summary: string;       // one-line Bahasa Indonesia summary
+  rationale: string;     // why this matters to the creator
+  negotiation_ask: string | null;
+  created_at: string;
+  suggested_edits: SuggestedEditResponse[];
+  citations: CitationResponse[];
+}
+
+export interface AnalysisResultsResponse {
+  job_id: string;
+  version_id: string;
+  state: string;
+  stage: string | null;
+  error_message: string | null;
+  risk_flags: RiskFlagResponse[];
+  flag_counts: { critical: number; high: number; medium: number; info: number };
+}
+
 // ── Analysis API ──────────────────────────────────────────────────────────────
 
 export async function getAnalysis(jobId: string): Promise<AnalysisJobResponse> {
@@ -206,5 +248,13 @@ export async function triggerAnalysis(versionId: string): Promise<AnalysisJobRes
     const err = await res.json().catch(() => ({ detail: 'Gagal memulai analisis.' }));
     throw new Error(err.detail || 'Gagal memulai analisis.');
   }
+  return res.json();
+}
+
+/** Fetch full risk analysis results (risk_flags + suggested_edits + citations)
+ *  for a completed job. Available as soon as job.state === 'done'. */
+export async function getAnalysisResults(jobId: string): Promise<AnalysisResultsResponse> {
+  const res = await fetch(`${ANALYSES_BASE}/${jobId}/results`, { headers: getAuthHeaders() });
+  if (!res.ok) throw new Error('Gagal memuat hasil analisis.');
   return res.json();
 }

@@ -218,14 +218,54 @@ def _process_job(job_id: str, version_id: str, user_id: str) -> None:
             tokens=len(redaction_result.mapping),
         )
 
-    # ── 6. LLM analysis (Task #3 placeholder) ────────────────────────────────
-    _set_stage(job_id, "Analisis AI (akan tersedia segera)")
-    # TODO Task #3: call LLM, persist risk_flags, suggested_edits
-    logger.info(
-        "llm_analysis_skipped",
-        job_id=job_id,
-        note="LLM analysis wired in Task #3",
-    )
+    # ── 6. LLM analysis ───────────────────────────────────────────────────────
+    _set_stage(job_id, "Memulai analisis AI")
+    try:
+        from landy.analysis.pipeline import run_analysis  # imported here to keep startup fast
+        from landy.llm import LLMError
+
+        domains_ok, domain_errors = run_analysis(
+            version_id=version_id,
+            job_id=job_id,
+            user_id=user_id,
+            set_stage_fn=lambda stage: _set_stage(job_id, stage),
+        )
+
+        if domain_errors:
+            n_total = domains_ok + len(domain_errors)
+            err_summary = (
+                f"Analisis selesai: {domains_ok}/{n_total} domain berhasil, "
+                f"{len(domain_errors)} domain gagal:\n" +
+                "\n".join(domain_errors[:10])
+            )
+            if domains_ok == 0:
+                # All domains failed — hard failure
+                _mark_failed(job_id, err_summary)
+                logger.error(
+                    "analysis_all_domains_failed",
+                    job_id=job_id,
+                    version_id=version_id,
+                    domain_errors=domain_errors,
+                )
+                return
+            else:
+                # Partial failure — job completes but records which domains failed
+                _exec_worker(
+                    "UPDATE analysis_jobs SET error_message = :err WHERE id = :id",
+                    {"err": err_summary[:2000], "id": job_id},
+                )
+                logger.warning(
+                    "analysis_partial_failure",
+                    job_id=job_id,
+                    domains_ok=domains_ok,
+                    domains_failed=len(domain_errors),
+                )
+
+    except LLMError as exc:
+        # LLM misconfigured (no API key, wrong provider) — hard failure
+        _mark_failed(job_id, f"Konfigurasi LLM tidak valid: {exc}")
+        logger.error("analysis_llm_config_error", job_id=job_id, error=str(exc))
+        return
 
     _mark_done(job_id)
     logger.info(

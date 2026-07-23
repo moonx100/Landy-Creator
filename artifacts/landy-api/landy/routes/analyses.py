@@ -1,13 +1,13 @@
 """Analysis job endpoints.
 
-POST /api/analyses         — enqueue a new analysis job for an existing version
-GET  /api/analyses/{job_id} — poll job state, stage, and error
+POST /api/analyses                    — enqueue a new analysis job for a version
+GET  /api/analyses/{job_id}           — poll job state, stage, and error_message
+GET  /api/analyses/{job_id}/results   — fetch full risk_flags + suggested_edits
 
 The upload endpoint (POST /api/documents/{id}/versions) auto-enqueues a job.
 POST /api/analyses is used to re-trigger analysis on a version whose job failed,
 or to trigger analysis manually if the upload step was done separately.
-
-Both endpoints consume one quota unit (upload + re-trigger each cost 1).
+Both consume one quota unit.
 
 Security: every query includes explicit user_id = :uid predicates so that
 correctness is not solely dependent on RLS policy semantics.
@@ -21,7 +21,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from landy.deps.auth import get_current_user
 from landy.deps.quota import consume_quota, require_quota
 from landy.logging_setup import logger
-from landy.models.documents import AnalysisJobResponse, CreateAnalysisRequest
+from landy.models.documents import (
+    AnalysisJobResponse,
+    AnalysisResultsResponse,
+    CitationResponse,
+    CreateAnalysisRequest,
+    RiskFlagResponse,
+    SuggestedEditResponse,
+)
 
 router = APIRouter()
 
@@ -53,8 +60,6 @@ def create_analysis(
     conn, user = auth
     uid = str(user.user_id)
 
-    # Verify the version exists and belongs to this user via explicit JOIN.
-    # RLS also enforces this, but we add an explicit predicate for defence-in-depth.
     version_row = conn.execute(
         sa.text(
             "SELECT dv.id "
@@ -66,10 +71,7 @@ def create_analysis(
     ).fetchone()
 
     if not version_row:
-        raise HTTPException(
-            status_code=404,
-            detail="Versi dokumen tidak ditemukan.",
-        )
+        raise HTTPException(status_code=404, detail="Versi dokumen tidak ditemukan.")
 
     job = conn.execute(
         sa.text(
@@ -117,9 +119,122 @@ def get_analysis(
     ).fetchone()
 
     if not row:
-        raise HTTPException(
-            status_code=404,
-            detail="Pekerjaan analisis tidak ditemukan.",
-        )
+        raise HTTPException(status_code=404, detail="Pekerjaan analisis tidak ditemukan.")
 
     return _job_row_to_response(row)
+
+
+@router.get("/{job_id}/results", response_model=AnalysisResultsResponse)
+def get_analysis_results(
+    job_id: UUID,
+    auth: Tuple[sa.engine.Connection, Any] = Depends(get_current_user),
+) -> AnalysisResultsResponse:
+    """Return the full set of risk_flags (with suggested_edits and citations)
+    for a completed analysis job.
+
+    Available as soon as the job state is 'done' (or 'failed' — returns
+    whatever partial results were persisted before the failure).
+
+    Explicit user_id ensures no cross-user data leakage.
+    """
+    conn, user = auth
+    uid = str(user.user_id)
+
+    # Fetch the job (ownership check via user_id = :uid)
+    job_row = conn.execute(
+        sa.text(
+            "SELECT aj.id, aj.version_id, aj.user_id, aj.state, aj.stage, "
+            "aj.error_message, aj.created_at, aj.finished_at "
+            "FROM analysis_jobs aj "
+            "WHERE aj.id = :jid AND aj.user_id = :uid"
+        ),
+        {"jid": str(job_id), "uid": uid},
+    ).fetchone()
+
+    if not job_row:
+        raise HTTPException(status_code=404, detail="Pekerjaan analisis tidak ditemukan.")
+
+    # Fetch all risk_flags for exactly this job run, ordered by severity then created_at.
+    # Scoping by job_id (not version_id) means reruns on the same version never pollute
+    # each other's results — each job sees only its own findings.
+    _SEVERITY_ORDER = "CASE rf.severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END"
+    flag_rows = conn.execute(
+        sa.text(
+            f"SELECT rf.id, rf.clause_id, rf.domain, rf.severity, rf.finding_type, "
+            f"rf.summary, rf.rationale, rf.negotiation_ask, rf.created_at "
+            f"FROM risk_flags rf "
+            f"WHERE rf.job_id = :jid "
+            f"ORDER BY {_SEVERITY_ORDER}, rf.created_at ASC"
+        ),
+        {"jid": str(job_id)},
+    ).fetchall()
+
+    # Build flag responses with nested suggested_edits and citations
+    flags: list[RiskFlagResponse] = []
+    for f in flag_rows:
+        flag_id = str(f.id)
+
+        # Suggested edits for this flag
+        edit_rows = conn.execute(
+            sa.text(
+                "SELECT id, clause_id, original_text, revised_text, comment, accepted "
+                "FROM suggested_edits WHERE risk_flag_id = :fid ORDER BY id"
+            ),
+            {"fid": flag_id},
+        ).fetchall()
+
+        edits = [
+            SuggestedEditResponse(
+                id=e.id,
+                clause_id=e.clause_id,
+                original_text=e.original_text,
+                revised_text=e.revised_text,
+                comment=e.comment,
+                accepted=e.accepted,
+            )
+            for e in edit_rows
+        ]
+
+        # Citation placeholders for this flag
+        cite_rows = conn.execute(
+            sa.text(
+                "SELECT id, provision_id, citation_text, basis "
+                "FROM citations WHERE risk_flag_id = :fid ORDER BY id"
+            ),
+            {"fid": flag_id},
+        ).fetchall()
+
+        citations = [
+            CitationResponse(
+                id=c.id,
+                provision_id=c.provision_id,
+                citation_text=c.citation_text,
+                basis=c.basis,
+            )
+            for c in cite_rows
+        ]
+
+        flags.append(
+            RiskFlagResponse(
+                id=f.id,
+                clause_id=f.clause_id,
+                domain=f.domain,
+                severity=f.severity,
+                finding_type=f.finding_type,
+                summary=f.summary,
+                rationale=f.rationale,
+                negotiation_ask=f.negotiation_ask,
+                created_at=f.created_at,
+                suggested_edits=edits,
+                citations=citations,
+            )
+        )
+
+    return AnalysisResultsResponse(
+        job_id=job_row.id,
+        version_id=job_row.version_id,
+        state=job_row.state,
+        stage=job_row.stage,
+        error_message=job_row.error_message,
+        risk_flags=flags,
+    )
