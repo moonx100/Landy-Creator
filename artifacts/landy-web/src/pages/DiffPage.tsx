@@ -6,7 +6,7 @@
  * Material changes are shown first (spec §1 item 5): each change is labelled
  * with materiality badge, change kind, and the Bahasa Indonesia reason.
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import {
   getVersionDiff,
@@ -176,6 +176,9 @@ export default function DiffPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [triggeringAnalysis, setTriggeringAnalysis] = useState(false);
+  // Ref-based in-flight guard: prevents a second call from firing before the
+  // first async call resolves, even if React hasn't re-rendered yet.
+  const analysisInFlight = useRef(false);
 
   // Filter for material/immaterial sections
   const [showMaterialOnly, setShowMaterialOnly] = useState(false);
@@ -211,9 +214,11 @@ export default function DiffPage() {
     setLocation(target);
   }, [diff, setLocation]);
 
-  // Trigger analysis for the "to" version and navigate to ReviewPage on success
+  // Trigger analysis for the "to" version and navigate to ReviewPage on success.
+  // The ref guard prevents a second in-flight call even before React re-renders.
   const handleTriggerAnalysis = useCallback(async () => {
-    if (!diff || triggeringAnalysis) return;
+    if (!diff || analysisInFlight.current) return;
+    analysisInFlight.current = true;
     setTriggeringAnalysis(true);
     try {
       const job = await triggerAnalysis(diff.to_version_id);
@@ -221,9 +226,10 @@ export default function DiffPage() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Gagal memulai analisis.";
       toast({ title: "Gagal memulai analisis", description: msg, variant: "destructive" });
+      analysisInFlight.current = false;
       setTriggeringAnalysis(false);
     }
-  }, [diff, triggeringAnalysis, setLocation, toast]);
+  }, [diff, setLocation, toast]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
