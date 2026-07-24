@@ -76,15 +76,15 @@ class OpenAICompatibleClient(LLMClient):
                 "Run: pip install openai>=1.54.0"
             ) from exc
 
-        if not settings.llm_api_key:
+        if not settings.effective_llm_api_key:
             raise LLMError(
                 "LLM_API_KEY is not set. "
                 "Set it to your provider's API key to enable analysis."
             )
 
-        kwargs: dict = {"api_key": settings.llm_api_key}
-        if settings.llm_base_url:
-            kwargs["base_url"] = settings.llm_base_url
+        kwargs: dict = {"api_key": settings.effective_llm_api_key}
+        if settings.effective_llm_base_url:
+            kwargs["base_url"] = settings.effective_llm_base_url
 
         self._client = OpenAI(**kwargs)
         self._default_model = settings.llm_model
