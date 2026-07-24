@@ -319,7 +319,19 @@ export default function HomePage() {
                   {documents.map((doc) => (
                     <div
                       key={doc.id}
-                      className="flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/20 transition-colors"
+                      className={`flex items-start gap-3 p-3 rounded-md border border-border transition-colors ${
+                        doc.latest_job?.state === "done"
+                          ? "hover:bg-primary/5 cursor-pointer hover:border-primary/30"
+                          : "hover:bg-muted/20"
+                      }`}
+                      onClick={() => handleReview(doc)}
+                      title={
+                        doc.latest_job?.state === "done"
+                          ? "Buka hasil analisis"
+                          : doc.latest_job?.state === "running" || doc.latest_job?.state === "queued"
+                          ? "Analisis sedang berjalan…"
+                          : "Unggah file untuk memulai analisis"
+                      }
                     >
                       <FileText className="w-8 h-8 text-primary shrink-0 mt-0.5" />
                       <div className="flex-1 min-w-0">

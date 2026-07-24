@@ -182,6 +182,16 @@ export default function LoginPage() {
               </form>
             </Card>
           )}
+          {/* Demo link — visible without login */}
+          <div className="text-center">
+            <p className="text-xs text-muted-foreground mb-1.5">Ingin melihat tampilan hasilnya dulu?</p>
+            <Link
+              href="/demo"
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline font-medium"
+            >
+              Lihat halaman hasil analisis (demo) →
+            </Link>
+          </div>
         </div>
       </div>
     </div>
