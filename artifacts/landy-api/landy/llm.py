@@ -108,8 +108,8 @@ class OpenAICompatibleClient(LLMClient):
             kwargs: dict = {
                 "model": m,
                 "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": 0.1,  # low temperature for legal analysis
+                "max_completion_tokens": max_tokens,
+                # temperature is fixed at 1 for gpt-5 series; older models accept it
             }
             if json_mode:
                 kwargs["response_format"] = {"type": "json_object"}
