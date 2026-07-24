@@ -9,6 +9,7 @@ import LoginPage from '@/pages/LoginPage';
 import HomePage from '@/pages/HomePage';
 import ReviewPage from '@/pages/ReviewPage';
 import DiffPage from '@/pages/DiffPage';
+import DemoReviewPage from '@/pages/DemoReviewPage';
 
 const queryClient = new QueryClient();
 
@@ -20,6 +21,7 @@ function Router() {
       <Route path="/redeem" component={RedeemPage} />
       <Route path="/review/:jobId" component={ReviewPage} />
       <Route path="/documents/:docId/versions/:versionId/diff" component={DiffPage} />
+      <Route path="/demo" component={DemoReviewPage} />
       <Route component={NotFound} />
     </Switch>
   );
