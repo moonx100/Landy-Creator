@@ -3,6 +3,7 @@
 All config is loaded from the environment (or a .env file in local dev).
 No secrets are hard-coded here or anywhere else in the codebase.
 """
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +13,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    # Deployment environment: "development", "beta", or "production".
+    # Gates debug_otp — see the validator below.
+    environment: str = "development"
 
     # Database — required
     database_url: str
@@ -58,12 +63,24 @@ class Settings(BaseSettings):
     default_analyses_quota: int = 8
 
     # In dev/beta, include the OTP plaintext in the /login response so testers
-    # can complete the flow without an email provider. Set to False in production.
-    debug_otp: bool = True
+    # can complete the flow without an email provider. Must be explicitly
+    # opted into per-environment — never on by default, and never on in
+    # production (enforced by the validator below).
+    debug_otp: bool = False
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _forbid_debug_otp_in_production(self) -> "Settings":
+        if self.environment == "production" and self.debug_otp:
+            raise RuntimeError(
+                "Refusing to start: ENVIRONMENT=production with DEBUG_OTP=true. "
+                "debug_otp leaks plaintext OTPs in the /api/auth/login response "
+                "and must never be enabled in production."
+            )
+        return self
 
 
 settings = Settings()
