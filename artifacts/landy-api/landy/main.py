@@ -20,6 +20,13 @@ configure_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("landy_api_start", version="0.2.0")
+
+    # Fail fast if no LLM provider is configured — contract analysis is the
+    # product's core function, so this is a boot-time error, not something a
+    # user discovers on their first upload.
+    from landy.llm import assert_llm_configured
+    assert_llm_configured()
+
     # Bootstrap MinIO bucket — logged as warning on failure, not crash
     try:
         from landy.storage import bootstrap_bucket

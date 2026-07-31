@@ -31,24 +31,17 @@ class Settings(BaseSettings):
     s3_secret_key: str = "minioadmin"
     s3_bucket_class_b: str = "landy-contracts"  # Class B: user-uploaded contracts
 
-    # LLM provider — uses Replit AI Integrations proxy by default.
-    # Set LLM_API_KEY / LLM_BASE_URL to override with a direct provider key.
+    # LLM provider — must be configured explicitly via env. There is no
+    # fallback provider: the app refuses to start (see landy.llm) rather than
+    # silently running against an unconfigured or unintended endpoint.
+    # Whatever provider/endpoint is set here must carry a documented
+    # no-training and zero/short-retention data-processing guarantee and a
+    # known data region — this is an operator/procurement decision, not
+    # something the code can enforce; see .env.example for the checklist.
     llm_provider: str = "openai"
     llm_api_key: str = ""
-    llm_model: str = "gpt-5.6-terra"
+    llm_model: str = "gpt-4o"
     llm_base_url: str = ""
-
-    # Replit AI Integrations — auto-provisioned, used when llm_api_key is unset
-    ai_integrations_openai_api_key: str = ""
-    ai_integrations_openai_base_url: str = ""
-
-    @property
-    def effective_llm_api_key(self) -> str:
-        return self.llm_api_key or self.ai_integrations_openai_api_key
-
-    @property
-    def effective_llm_base_url(self) -> str:
-        return self.llm_base_url or self.ai_integrations_openai_base_url
 
     # Admin CLI
     admin_secret: str = "change-me-in-production"

@@ -470,6 +470,12 @@ def _cleanup_deleted_documents() -> None:
 def main() -> None:
     logger.info("landy_worker_start", poll_interval=_POLL_INTERVAL_SECONDS)
 
+    # Fail fast if no LLM provider is configured — every job this worker
+    # claims ends in an LLM analysis call, so an unconfigured provider is a
+    # boot-time error, not a per-job failure discovered later.
+    from landy.llm import assert_llm_configured
+    assert_llm_configured()
+
     # Bootstrap storage backend — auto-selects local filesystem if S3 is
     # unreachable (same logic as the API server). Must run before any job is
     # processed so download_bytes() uses the correct backend.
