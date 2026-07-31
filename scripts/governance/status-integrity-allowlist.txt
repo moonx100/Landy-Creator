@@ -1,0 +1,4 @@
+# Files permitted to write a verified statutes.status value (status-integrity.md).
+# The operator entrypoint (landy/admin.py, operator_status.py) is allowlisted in
+# the validator by default. Add one path-regex per line to extend.
+# Every addition needs MV's sign-off in the PR — this list is the trust boundary.

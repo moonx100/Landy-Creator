@@ -1,0 +1,16 @@
+{
+  "//": "LANDY Creator hooks. The UserPromptSubmit reminder is ADVISORY only. Binding force comes from .claude/rules/ + scripts/governance/validate-all.sh run at task close and in CI.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[LANDY Creator] Load CLAUDE.md + .claude/rules/. Money-path = a wrong or missed legal claim. Redact PII before every chat_complete(); non-empty != extracted; no reassuring defaults on failure paths; real OOXML w:ins/w:del only; tenant isolation = explicit WHERE user_id (RLS is inert under the superuser role); output is information, not legal advice. git pull first; branch + PR. Run scripts/governance/validate-all.sh before close.'"
+          }
+        ]
+      }
+    ]
+  }
+}

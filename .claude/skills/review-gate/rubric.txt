@@ -1,0 +1,9 @@
+# /review-gate mechanical rubric — checked against artifacts/landy-api/landy/extraction.py
+# Format: HAS|id|regex|desc   or   NOT|id|regex|desc
+HAS|ext-ok-field|extraction_ok|extractor exposes an explicit extraction_ok field
+HAS|ext-note|extraction_note|extractor exposes a populated failure note
+HAS|ext-accuracy|accuracy_warning|OCR paths carry an accuracy warning
+HAS|ext-sha|sha256|every extraction records a content hash for provenance
+HAS|ext-coverage|_MIN_|a named coverage threshold constant exists
+NOT|ext-bare-ok|(ok|extraction_ok)[[:space:]]*=[[:space:]]*bool\([^)]*strip\(\)\)|extraction_ok must not rest on a bare non-emptiness test
+NOT|ext-swallow|except[[:space:]]+Exception[[:space:]]*:[[:space:]]*$|no swallowing except in the extractor

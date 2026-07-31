@@ -1,0 +1,6 @@
+# chat_complete() call sites exempt from the module-level redact() requirement
+# (redact-before-inference.md). One path per line, each with a written
+# justification comment. An entry here means: the input is provably redacted
+# upstream. Every addition needs MV's sign-off in the PR.
+#
+# (empty — no exemptions granted)

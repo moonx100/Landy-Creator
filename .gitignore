@@ -47,3 +47,60 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LANDY governance additions — secrets and user data
+# The repository is PUBLIC. Every commit is published. See
+# .claude/rules/secrets-hygiene.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Environment / secrets — .env.example is the ONLY committed env file
+.env
+.env.*
+!.env.example
+*.env
+.envrc
+secrets.json
+credentials.json
+*.pem
+*.key
+!**/public.key
+
+# Local upload storage (user contracts — Class B personal data).
+# storage.py writes to ~/.landy-dev-storage, outside the tree; these are
+# belt-and-braces for anyone who reconfigures it.
+.landy-dev-storage/
+uploads/
+storage/local/
+
+# Real contracts and documents must never be committed.
+# Add specific files back with `git add -f` only after confirming they contain
+# no personal data.
+*.docx
+*.pdf
+!docs/**/*.pdf
+!**/fixtures/**/*.docx
+!**/fixtures/**/*.pdf
+!**/tests/**/*.docx
+!**/tests/**/*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Databases / dumps
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+
+# Logs
+*.log
+logs/

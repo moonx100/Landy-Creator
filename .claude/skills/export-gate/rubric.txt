@@ -1,0 +1,10 @@
+# /export-gate mechanical rubric — checked against artifacts/landy-api/landy/export/docx_export.py
+# Format: HAS|id|regex|desc   or   NOT|id|regex|desc
+HAS|ooxml-ins|w:ins|insertions use real OOXML w:ins revision markup
+HAS|ooxml-del|w:del|deletions use real OOXML w:del revision markup
+HAS|ooxml-deltext|w:delText|deleted runs use w:delText per the OOXML spec
+HAS|ooxml-author|w:author|revisions are attributed to an author
+HAS|ooxml-date|w:date|revisions carry a date
+HAS|disclaimer|nasihat hukum|the exported artifact carries the disclaimer
+NOT|sim-strike|w:strike|no strikethrough formatting standing in for a deletion
+NOT|sim-highlight|w:highlight|no highlight formatting standing in for an insertion

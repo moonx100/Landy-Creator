@@ -1,0 +1,3 @@
+# Hosts LANDY must NOT fetch (source-access.md). One host per line.
+# BPK: HTTP 403 Cloudflare JS challenge + robots.txt ai-train=no.
+peraturan.bpk.go.id
