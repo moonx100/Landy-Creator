@@ -21,7 +21,8 @@ Spec constraints enforced here:
   - statutes.status is never set (we only write citation shell rows)
   - citation_basis always provided, never inferred
   - governing_language and execution_validity called even with no matching clauses
-  - Redaction applied to clause text before sending to LLM
+  - Redaction applied to summary sample text, clause text, and comment
+    bubbles before any of it reaches the LLM (shared, version-scoped mapping)
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ import sqlalchemy as sa
 from landy.database import engine
 from landy.llm import LLMError, extract_json, get_llm_client
 from landy.logging_setup import logger
-from landy.redaction import redact
+from landy.redaction import fetch_mapping, persist_mapping, redact
 from landy.analysis.taxonomy import DOMAIN_INDEX, DOMAINS, Domain
 
 _WORKER_TOKEN = "SYSTEM_WORKER"
@@ -132,14 +133,20 @@ def _filter_clauses(clauses: list[ClauseRow], domain: Domain) -> list[ClauseRow]
     return matched if matched else clauses
 
 
-def _format_clauses(clauses: list[ClauseRow], max_chars: int) -> str:
-    """Format clauses as a numbered list, truncating at max_chars."""
+def _format_clauses(clauses: list[ClauseRow], max_chars: int, redaction_map: dict[str, str]) -> str:
+    """Format clauses as a numbered list, truncating at max_chars.
+
+    redaction_map is the version-scoped token→original mapping, mutated in
+    place so tokens stay stable with every other call site for this version.
+    """
     parts: list[str] = []
     total = 0
     for c in clauses:
         heading = f" ({c.heading_path})" if c.heading_path else ""
         # Redact PII from clause text before sending to LLM
-        redacted_text = redact(c.text).redacted_text
+        redaction_result = redact(c.text, existing_mapping=redaction_map)
+        redaction_map.update(redaction_result.mapping)
+        redacted_text = redaction_result.redacted_text
         entry = f"[Klausul {c.ordinal}{heading}]\n{redacted_text}"
         if total + len(entry) > max_chars:
             parts.append(f"... (klausul selanjutnya dipotong untuk menghemat token)")
@@ -151,11 +158,14 @@ def _format_clauses(clauses: list[ClauseRow], max_chars: int) -> str:
 
 # ── Document summary ──────────────────────────────────────────────────────────
 
-def _build_summary(clauses: list[ClauseRow]) -> str:
+def _build_summary(clauses: list[ClauseRow], redaction_map: dict[str, str]) -> str:
     """Build a compact document summary using the LLM.
 
     Used as context for each domain call. Falls back to a simple text extract
     if the LLM call fails (never blocks the main analysis).
+
+    redaction_map is the version-scoped token→original mapping, mutated in
+    place so tokens stay stable with every other call site for this version.
     """
     if not clauses:
         return "Dokumen tidak memiliki klausul yang dapat diekstrak."
@@ -168,7 +178,9 @@ def _build_summary(clauses: list[ClauseRow]) -> str:
             break
 
     # Redact PII from the sample
-    sample_text = redact(sample_text[:_MAX_SUMMARY_INPUT_CHARS]).redacted_text
+    redaction_result = redact(sample_text[:_MAX_SUMMARY_INPUT_CHARS], existing_mapping=redaction_map)
+    redaction_map.update(redaction_result.mapping)
+    sample_text = redaction_result.redacted_text
 
     system = (
         "Anda adalah asisten yang merangkum kontrak. "
@@ -195,15 +207,38 @@ def _build_summary(clauses: list[ClauseRow]) -> str:
 
 # ── Domain analysis ───────────────────────────────────────────────────────────
 
-def _format_comments(comments: list[dict], max_comments: int = 20) -> str:
-    """Format extracted document comments for inclusion in the LLM prompt."""
+def _format_comments(comments: list[dict], redaction_map: dict[str, str], max_comments: int = 20) -> str:
+    """Format extracted document comments for inclusion in the LLM prompt.
+
+    Comment author/body/anchor text can carry PII (a reviewer's name, an
+    email, a phone number quoted in a note) just like clause text, so it is
+    redacted the same way before it reaches the LLM. redaction_map is the
+    version-scoped token→original mapping, mutated in place so tokens stay
+    stable with every other call site for this version.
+    """
     if not comments:
         return ""
     lines: list[str] = []
     for c in comments[:max_comments]:
-        author_label = f"[{c['author']}]" if c.get("author") else "[Tanpa nama]"
-        anchor = f" (terkait teks: \"{c['anchor_text'][:120]}\")" if c.get("anchor_text") else ""
-        lines.append(f"- {author_label}: {c['body']}{anchor}")
+        author = c.get("author")
+        if author:
+            author_result = redact(author, existing_mapping=redaction_map)
+            redaction_map.update(author_result.mapping)
+            author_label = f"[{author_result.redacted_text}]"
+        else:
+            author_label = "[Tanpa nama]"
+
+        body_result = redact(c.get("body") or "", existing_mapping=redaction_map)
+        redaction_map.update(body_result.mapping)
+        body = body_result.redacted_text
+
+        anchor = ""
+        if c.get("anchor_text"):
+            anchor_result = redact(c["anchor_text"][:120], existing_mapping=redaction_map)
+            redaction_map.update(anchor_result.mapping)
+            anchor = f" (terkait teks: \"{anchor_result.redacted_text}\")"
+
+        lines.append(f"- {author_label}: {body}{anchor}")
     return "\n".join(lines)
 
 
@@ -211,6 +246,7 @@ def _call_domain(
     domain: Domain,
     summary: str,
     clauses: list[ClauseRow],
+    redaction_map: dict[str, str],
     comments: list[dict] | None = None,
 ) -> DomainResult:
     """Call LLM for one domain and return a parsed DomainResult.
@@ -227,9 +263,9 @@ def _call_domain(
             "Evaluasi apakah ketidakhadiran klausul ini sendiri merupakan temuan."
         )
     elif not relevant:
-        clauses_text = _format_clauses(clauses, _MAX_CLAUSE_CHARS_PER_DOMAIN)
+        clauses_text = _format_clauses(clauses, _MAX_CLAUSE_CHARS_PER_DOMAIN, redaction_map)
     else:
-        clauses_text = _format_clauses(relevant, _MAX_CLAUSE_CHARS_PER_DOMAIN)
+        clauses_text = _format_clauses(relevant, _MAX_CLAUSE_CHARS_PER_DOMAIN, redaction_map)
 
     user_msg = (
         f"Ringkasan Dokumen:\n{summary}\n\n"
@@ -238,7 +274,7 @@ def _call_domain(
 
     # Include comment bubbles so the LLM can flag concerns raised in comments
     if comments:
-        comment_text = _format_comments(comments)
+        comment_text = _format_comments(comments, redaction_map)
         user_msg += (
             f"Komentar yang Ditambahkan oleh Pihak Lain dalam Dokumen:\n"
             f"{comment_text}\n\n"
@@ -478,8 +514,16 @@ def run_analysis(
             count=len(comments),
         )
 
+    # Load the version-scoped redaction mapping (populated by the worker's
+    # document-level redact() pass) so every LLM call site for this version
+    # — summary, clauses, comments — reuses the same tokens instead of each
+    # deriving its own local numbering.
+    with _wconn() as conn:
+        _set_worker_rls(conn)
+        redaction_map = fetch_mapping(conn, version_id)
+
     set_stage_fn("Membangun ringkasan dokumen")
-    summary = _build_summary(clauses)
+    summary = _build_summary(clauses, redaction_map)
     logger.info("summary_built", version_id=version_id, length=len(summary))
 
     domains_ok = 0
@@ -491,7 +535,7 @@ def run_analysis(
         logger.info("domain_analysis_start", domain=domain.key, version_id=version_id)
 
         try:
-            result = _call_domain(domain, summary, clauses, comments=comments)
+            result = _call_domain(domain, summary, clauses, redaction_map, comments=comments)
             _persist_domain_result(domain, result, clauses, version_id, job_id, user_id)
             domains_ok += 1
             logger.info(
@@ -509,5 +553,11 @@ def run_analysis(
             err = f"{domain.key}: unexpected error — {exc}"
             domain_errors.append(err)
             logger.error("domain_analysis_unexpected", domain=domain.key, error=str(exc))
+
+    # Persist any new tokens discovered while formatting summary/clauses/comments
+    # (e.g. PII in a comment bubble that wasn't in the document body redaction).
+    with _wconn() as conn:
+        _set_worker_rls(conn)
+        persist_mapping(conn, version_id, redaction_map)
 
     return domains_ok, domain_errors

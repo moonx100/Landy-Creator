@@ -6,15 +6,25 @@ risk flags and their negotiation_ask text.
 """
 from __future__ import annotations
 
+import sqlalchemy as sa
+
+from landy.database import engine
 from landy.llm import LLMError, extract_json, get_llm_client
 from landy.logging_setup import logger
+from landy.redaction import expand, fetch_mapping, persist_mapping, redact
 
 _DISCLAIMER_FOOTER = """
 
 ---
-*Catatan: Email ini adalah panduan negosiasi berdasarkan analisis otomatis oleh LANDY Creator. Ini adalah INFORMASI HUKUM, bukan NASIHAT HUKUM. Konsultasikan dengan Advokat berlisensi sebelum mengambil keputusan hukum penting.*"""
+*Catatan: Email ini adalah panduan negosiasi berdasarkan analisis otomatis oleh LANDY Creator. Konten ini merupakan informasi hukum, bukan nasihat hukum, dan bukan pengganti konsultasi dengan advokat. Konsultasikan dengan advokat berlisensi sebelum mengambil keputusan hukum penting.*"""
 
 _SYSTEM_PROMPT = """Anda adalah konsultan negosiasi kontrak profesional Indonesia yang membantu seorang kreator konten menyusun email negosiasi kepada pihak brand/agensi.
+
+Peran Anda adalah menyusun draf komunikasi, bukan memberi nasihat hukum. Konten
+yang Anda hasilkan adalah informasi hukum dan panduan negosiasi, bukan nasihat
+hukum, dan bukan pengganti konsultasi dengan advokat. Jangan menginstruksikan
+kreator untuk menandatangani, menolak, atau membatalkan kontrak — tawarkan
+bahasa yang bisa mereka gunakan untuk mendiskusikan atau meminta perubahan.
 
 Tugas Anda: berdasarkan temuan risiko yang diberikan, susun email negosiasi yang:
 - Profesional dan tidak konfrontatif ("saya ingin mendiskusikan" bukan "saya menolak")
@@ -31,13 +41,23 @@ def generate_email_draft(
     document_title: str,
     counterparty: str | None,
     flags: list[dict],  # list of {domain, severity, summary, negotiation_ask, finding_type}
+    version_id: str | None = None,
 ) -> str:
     """Generate a Bahasa Indonesia negotiation email draft.
 
     Args:
         document_title:  Title of the document.
-        counterparty:    Name of the brand/agency (may be None).
+        counterparty:    Name of the brand/agency (may be None). Party/company
+                          names are preserved, not redacted — see redaction.py.
         flags:           Risk flags with their negotiation asks.
+        version_id:      UUID string of the source document_versions row, used
+                          to load/persist the version-scoped redaction mapping
+                          so tokens stay consistent with every other call site
+                          for this version. Findings should already be free of
+                          raw PII (upstream analysis redacts clause text before
+                          the LLM sees it) — this is defence in depth, per the
+                          project rule that every chat_complete() call site
+                          redacts, without exception.
 
     Returns:
         Complete email draft text (Bahasa Indonesia, plain text).
@@ -58,12 +78,25 @@ def generate_email_draft(
 
     to_name = counterparty or "Pihak Brand/Agensi"
 
+    redaction_map: dict[str, str] = {}
+    if version_id:
+        with engine.begin() as conn:
+            conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+            redaction_map = fetch_mapping(conn, version_id)
+
+    def _redact(text: str) -> str:
+        result = redact(text, existing_mapping=redaction_map)
+        redaction_map.update(result.mapping)
+        return result.redacted_text
+
+    document_title = _redact(document_title)
+
     # Build the user message
     asks_text = ""
     for i, flag in enumerate(actionable[:12], 1):  # cap at 12 items for context
         asks_text += (
-            f"\n{i}. [{flag.get('severity', '').upper()}] {flag.get('summary', '')}\n"
-            f"   Permintaan: {flag.get('negotiation_ask', '')}"
+            f"\n{i}. [{flag.get('severity', '').upper()}] {_redact(flag.get('summary', ''))}\n"
+            f"   Permintaan: {_redact(flag.get('negotiation_ask', ''))}"
         )
 
     user_msg = (
@@ -93,6 +126,16 @@ def generate_email_draft(
         draft = str(data.get("email") or data.get("draft") or "")
         if not draft:
             raise LLMError("Model returned empty email draft")
+
+        # The model occasionally echoes a redaction token verbatim (e.g. if it
+        # quotes a clause back); restore the real value so the draft shown to
+        # the creator never surfaces a raw [EMAIL_1]-style placeholder.
+        draft = expand(draft, redaction_map)
+
+        if version_id and redaction_map:
+            with engine.begin() as conn:
+                conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+                persist_mapping(conn, version_id, redaction_map)
 
         logger.info(
             "email_draft_generated",

@@ -23,6 +23,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+import sqlalchemy as sa
+
 
 @dataclass
 class RedactionResult:
@@ -66,13 +68,38 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 
 
-def redact(text: str) -> RedactionResult:
-    """Replace PII in text with stable tokens. Returns redacted text + mapping."""
+_TOKEN_RE = re.compile(r"^\[([A-Z]+)_(\d+)\]$")
+
+
+def redact(text: str, existing_mapping: Optional[dict[str, str]] = None) -> RedactionResult:
+    """Replace PII in text with stable tokens. Returns redacted text + mapping.
+
+    Args:
+        text: text to redact.
+        existing_mapping: token→original pairs already assigned for this
+            document version (e.g. fetched from `redaction_mappings`, or
+            accumulated from earlier `redact()` calls in the same job).
+            When given, already-known originals reuse their existing token
+            instead of being reassigned, and new counters continue from the
+            highest existing index per prefix — so tokens stay stable across
+            every call site touching the same version.
+
+    The returned mapping includes both the carried-over `existing_mapping`
+    entries and any newly discovered tokens.
+    """
     # counters per token type
     counters: dict[str, int] = {k: 0 for k, _ in _PATTERNS}
     # original → token (for stability within one document)
     original_to_token: dict[str, str] = {}
     mapping: dict[str, str] = {}
+
+    if existing_mapping:
+        for token, original in existing_mapping.items():
+            original_to_token[original] = token
+            mapping[token] = original
+            m = _TOKEN_RE.match(token)
+            if m and m.group(1) in counters:
+                counters[m.group(1)] = max(counters[m.group(1)], int(m.group(2)))
 
     result = text
     for prefix, pattern in _PATTERNS:
@@ -101,3 +128,25 @@ def expand(redacted_text: str, mapping: dict[str, str]) -> str:
     for token, original in mapping.items():
         result = result.replace(token, original)
     return result
+
+
+def fetch_mapping(conn: sa.engine.Connection, version_id: str) -> dict[str, str]:
+    """Return the token→original mapping already recorded for a version."""
+    rows = conn.execute(
+        sa.text("SELECT token, original FROM redaction_mappings WHERE version_id = :vid"),
+        {"vid": version_id},
+    ).fetchall()
+    return {r.token: r.original for r in rows}
+
+
+def persist_mapping(conn: sa.engine.Connection, version_id: str, mapping: dict[str, str]) -> None:
+    """Persist token→original pairs for a version. Idempotent (ON CONFLICT DO NOTHING)."""
+    for token, original in mapping.items():
+        conn.execute(
+            sa.text(
+                "INSERT INTO redaction_mappings (version_id, token, original) "
+                "VALUES (:vid, :tok, :orig) "
+                "ON CONFLICT (version_id, token) DO NOTHING"
+            ),
+            {"vid": version_id, "tok": token, "orig": original},
+        )

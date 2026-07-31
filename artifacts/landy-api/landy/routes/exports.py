@@ -28,7 +28,7 @@ from landy.models.exports import (
     PatchSuggestedEditRequest,
     SuggestedEditPatchResponse,
 )
-from landy.redaction import expand
+from landy.redaction import expand, fetch_mapping
 import landy.storage as storage
 
 router = APIRouter()
@@ -118,11 +118,7 @@ def _require_version_ownership(
 
 def _fetch_redaction_map(conn: sa.engine.Connection, version_id: str) -> dict[str, str]:
     """Return token→original mapping for a version (from redaction_mappings table)."""
-    rows = conn.execute(
-        sa.text("SELECT token, original FROM redaction_mappings WHERE version_id = :vid"),
-        {"vid": version_id},
-    ).fetchall()
-    return {r.token: r.original for r in rows}
+    return fetch_mapping(conn, version_id)
 
 
 def _fetch_clauses(conn: sa.engine.Connection, version_id: str) -> list[sa.Row]:
@@ -380,6 +376,7 @@ def export_email_draft(
             document_title=version_row.title,
             counterparty=version_row.counterparty,
             flags=flags,
+            version_id=vid,
         )
     except LLMError as exc:
         raise HTTPException(

@@ -45,7 +45,7 @@ from landy.config import settings
 from landy.database import engine
 from landy.extraction import extract
 from landy.logging_setup import configure_logging, logger
-from landy.redaction import redact
+from landy.redaction import persist_mapping, redact
 from landy.segmentation import segment
 import landy.storage as storage
 
@@ -300,15 +300,7 @@ def _process_job(job_id: str, version_id: str, user_id: str) -> None:
     if redaction_result.mapping:
         with engine.begin() as conn:
             conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
-            for token, original in redaction_result.mapping.items():
-                conn.execute(
-                    sa.text(
-                        "INSERT INTO redaction_mappings (version_id, token, original) "
-                        "VALUES (:vid, :tok, :orig) "
-                        "ON CONFLICT (version_id, token) DO NOTHING"
-                    ),
-                    {"vid": version_id, "tok": token, "orig": original},
-                )
+            persist_mapping(conn, version_id, redaction_result.mapping)
         logger.info(
             "redaction_saved",
             version_id=version_id,

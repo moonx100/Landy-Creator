@@ -248,7 +248,7 @@ def run_diff(
     )
 
     set_stage_fn(f"Mengklasifikasi materialitas {len(entries)} perubahan klausul")
-    materiality_results = classify_materiality(entries, job_id, user_id)
+    materiality_results = classify_materiality(entries, job_id, user_id, to_version_id)
 
     # Pair each entry with its (materiality, reason)
     entries_with_materiality = [
