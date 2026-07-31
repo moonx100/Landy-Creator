@@ -23,11 +23,14 @@ from landy.database import engine
 from landy.diff.compute import DiffEntry
 from landy.llm import LLMError, extract_json, get_llm_client
 from landy.logging_setup import logger
+from landy.redaction import fetch_mapping, persist_mapping, redact
 
 _BATCH_SIZE = 5  # max clause pairs per LLM call
 
 _MATERIALITY_SYSTEM_PROMPT = """\
 Anda adalah analis hukum kontrak Indonesia yang berpengalaman, mengkhususkan diri dalam perjanjian antara kreator konten (influencer, artis, YouTuber) dan brand/agensi.
+
+Klasifikasi yang Anda hasilkan adalah informasi hukum untuk membantu kreator memahami perubahan kontrak, bukan nasihat hukum, dan bukan pengganti konsultasi dengan advokat. Jangan menyimpulkan bahwa kreator harus menandatangani, menolak, atau membatalkan kontrak — cukup jelaskan sifat perubahannya.
 
 Tugas Anda: Untuk setiap perubahan klausul yang diberikan, tentukan apakah perubahan tersebut MATERIAL atau TIDAK MATERIAL dari sudut pandang hukum yang mempengaruhi posisi kreator.
 
@@ -53,8 +56,17 @@ Kembalikan JSON object dengan format:
 """
 
 
-def _format_batch(entries: list[DiffEntry], start_idx: int = 1) -> str:
-    """Format a batch of diff entries for the LLM prompt."""
+def _format_batch(
+    entries: list[DiffEntry], redaction_map: dict[str, str], start_idx: int = 1
+) -> str:
+    """Format a batch of diff entries for the LLM prompt.
+
+    The diff itself (DiffEntry.before_text/after_text) intentionally stays
+    non-redacted for display — see diff/compute.py. Only the copy sent to the
+    LLM here is redacted, reusing the version-scoped mapping so tokens stay
+    consistent with every other call site for this version. redaction_map is
+    mutated in place with any newly discovered tokens.
+    """
     lines = []
     for i, entry in enumerate(entries, start_idx):
         kind_label = {
@@ -65,9 +77,13 @@ def _format_batch(entries: list[DiffEntry], start_idx: int = 1) -> str:
 
         lines.append(f"\n[{i}] {kind_label}")
         if entry.before_text:
-            lines.append(f"Teks sebelumnya:\n{entry.before_text[:600]}")
+            before_result = redact(entry.before_text[:600], existing_mapping=redaction_map)
+            redaction_map.update(before_result.mapping)
+            lines.append(f"Teks sebelumnya:\n{before_result.redacted_text}")
         if entry.after_text:
-            lines.append(f"Teks baru:\n{entry.after_text[:600]}")
+            after_result = redact(entry.after_text[:600], existing_mapping=redaction_map)
+            redaction_map.update(after_result.mapping)
+            lines.append(f"Teks baru:\n{after_result.redacted_text}")
     return "\n".join(lines)
 
 
@@ -138,13 +154,18 @@ def classify_materiality(
     entries: list[DiffEntry],
     job_id: str,
     user_id: str,
+    version_id: str,
 ) -> list[tuple[str, str]]:
     """Classify each DiffEntry as material or immaterial using the LLM.
 
     Args:
-        entries: List of DiffEntry objects from compute_clause_diff().
-        job_id:  UUID string of the analysis_jobs row (for usage_events).
-        user_id: UUID string of the owning user (for usage_events).
+        entries:    List of DiffEntry objects from compute_clause_diff().
+        job_id:     UUID string of the analysis_jobs row (for usage_events).
+        user_id:    UUID string of the owning user (for usage_events).
+        version_id: UUID string of the target document_versions row — used to
+                    load/persist the version-scoped redaction mapping so
+                    clause text sent to the LLM here uses the same tokens as
+                    every other call site for this version.
 
     Returns:
         List of (materiality, materiality_reason) tuples, parallel to entries.
@@ -157,10 +178,14 @@ def classify_materiality(
     llm = get_llm_client()
     results: list[tuple[str, str]] = []
 
+    with engine.begin() as conn:
+        conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+        redaction_map = fetch_mapping(conn, version_id)
+
     # Process in batches of _BATCH_SIZE
     for batch_start in range(0, len(entries), _BATCH_SIZE):
         batch = entries[batch_start : batch_start + _BATCH_SIZE]
-        batch_text = _format_batch(batch, start_idx=1)
+        batch_text = _format_batch(batch, redaction_map, start_idx=1)
 
         messages = [
             {"role": "system", "content": _MATERIALITY_SYSTEM_PROMPT},
@@ -210,5 +235,10 @@ def classify_materiality(
             results.extend(
                 [("immaterial", "Klasifikasi tidak tersedia")] * len(batch)
             )
+
+    # Persist any new tokens discovered while formatting batch text.
+    with engine.begin() as conn:
+        conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+        persist_mapping(conn, version_id, redaction_map)
 
     return results
