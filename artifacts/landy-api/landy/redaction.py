@@ -46,9 +46,11 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     )),
 
     # Indonesian phone: +62/62/08 prefix followed by 7–12 digits,
-    # with optional spaces/dashes between groups
+    # with optional spaces/dashes between groups. The run must end on a
+    # digit — not a separator — so trailing whitespace/dashes before
+    # unrelated text aren't swallowed into the match.
     ("PHONE", re.compile(
-        r"(?<!\d)(\+62|62|0)[0-9][0-9\s\-]{6,13}(?!\d)"
+        r"(?<!\d)(\+62|62|0)[0-9](?:[0-9\s\-]{4,11}[0-9])?(?!\d)"
     )),
 
     # Bank account: 10–16 digits (not already matched as NIK)
