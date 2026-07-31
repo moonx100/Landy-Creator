@@ -58,6 +58,15 @@ consolidate them.
 purposes: the former is a vendored design toolkit, the latter is this project's
 own compliance gates. They coexist.
 
+## Handoffs
+
+Session/task handoff reports (e.g. "what was done" summaries meant to brief a
+fresh chat or the next session) go in `docs/handoff/`. This directory is
+**gitignored** — handoffs are local working notes, not published evidence, and
+never need to survive a `git push`. Don't put them in `.agents/memory/`
+(that's durable evidence, appended-not-deleted) or commit them anywhere else in
+the tree.
+
 ## Money-path — the legal-correctness path
 
 Creator's catastrophic-failure surface is **a wrong or missed legal claim shown

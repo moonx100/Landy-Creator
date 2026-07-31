@@ -104,3 +104,7 @@ venv/
 # Logs
 *.log
 logs/
+
+# Session handoffs — local working notes only, never published.
+# See CLAUDE.md § Handoffs.
+docs/handoff/
