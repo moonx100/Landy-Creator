@@ -28,6 +28,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from landy.config import settings
+from landy.database import engine
 from landy.deps.db import get_raw_conn
 from landy.deps.auth import get_current_user
 from landy.logging_setup import logger
@@ -108,6 +109,27 @@ def _record_otp_attempt(
         ),
         {"identifier": identifier, "ip_address": ip_address, "success": success},
     )
+
+
+def _record_failed_attempt_committed(identifier: str, ip_address: str) -> None:
+    """Persist a failed OTP attempt in its own transaction.
+
+    `get_raw_conn` wraps the whole request in `engine.begin()`, which rolls
+    back on any exception — and every failed-verify path raises one. Writing
+    the attempt row through the request's own connection would therefore be
+    rolled back along with it, silently erasing the rate limiter's own
+    bookkeeping on every single failure. This uses an independent connection
+    so the failed attempt survives regardless of what the request transaction
+    does next.
+    """
+    with engine.begin() as record_conn:
+        record_conn.execute(
+            sa.text(
+                "INSERT INTO otp_verify_attempts (identifier, ip_address, success) "
+                "VALUES (:identifier, :ip_address, false)"
+            ),
+            {"identifier": identifier, "ip_address": ip_address},
+        )
 
 
 @router.post("/redeem", response_model=SessionResponse)
@@ -290,7 +312,7 @@ def verify_otp(
         raise _RATE_LIMITED
 
     def _fail() -> None:
-        _record_otp_attempt(conn, identifier, ip, success=False)
+        _record_failed_attempt_committed(identifier, ip)
         raise _invalid
 
     if not challenge_row:
