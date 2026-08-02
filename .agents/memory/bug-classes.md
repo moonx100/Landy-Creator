@@ -49,7 +49,14 @@ a "gap" that no longer exists.
 **Instances:** `redaction-diff-path-gap.md` said OPEN while the fix was live at
 HEAD; `materiality-default-gap.md` cited lines ~104/109/211 when the real sites
 had shifted to ~125/236 (both caught 2026-08-02 only because an Explore agent
-re-read the code).
+re-read the code). **Second occurrence, same day:** when those two files were
+marked RESOLVED, a `---\n## RESOLVED` section was appended but the *original*
+`## Status` block above it was left saying "OPEN as of 31 Jul 2026" <!-- memory-sync-ok: quoting the pattern as a worked example, not asserting this file's own status --> —
+`extraction-coverage-gap.md` had the identical problem (MEMORY.md called it
+resolved; the file body still said OPEN). All three caught by the first run of
+`validate-memory-sync.sh` (piece C, this session) — the guard found the exact
+drift it was built to catch, on its first execution, in files this very PR had
+just edited.
 
 **Detection:** a memory file naming a `validate-*.sh` that now exits 0 while the
 file still claims OPEN; hard-coded line numbers in prose.

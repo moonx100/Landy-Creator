@@ -44,8 +44,8 @@ most likely to be fully populated with real party details.
 
 ## Status
 
-OPEN as of 31 Jul 2026. `scripts/governance/validate-redaction-before-inference.sh`
-fails on this. Do not silence the validator.
+**RESOLVED** — see the dated section below. (Originally opened 31 Jul 2026;
+`scripts/governance/validate-redaction-before-inference.sh` now passes.)
 
 Related: `.claude/rules/redact-before-inference.md`, `MEMORY.md`.
 

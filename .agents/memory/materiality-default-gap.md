@@ -43,8 +43,8 @@ result.
 
 ## Status
 
-OPEN as of 31 Jul 2026. `scripts/governance/validate-silent-failure.sh` fails on
-both this and the missing `needs_review` vocabulary.
+**RESOLVED** — see the dated section below. (Originally opened 31 Jul 2026;
+`scripts/governance/validate-silent-failure.sh` now passes.)
 
 Related: `.claude/rules/silent-failure.md`, `MEMORY.md`.
 
