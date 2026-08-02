@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Scale, Loader2, AlertTriangle, Info,
   PlusCircle, MinusCircle, RefreshCw, ArrowRight, Sparkles, X,
-  GitBranch,
+  GitBranch, HelpCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -47,7 +47,12 @@ const CHANGE_KIND_CONFIG = {
   },
 } as const;
 
-const MATERIALITY_CONFIG = {
+type MatKey = "material" | "immaterial" | "needs_review";
+
+const MATERIALITY_CONFIG: Record<
+  MatKey,
+  { label: string; badgeClass: string; sectionClass: string }
+> = {
   material: {
     label: "Material",
     badgeClass: "bg-rose-100 text-rose-800 border-rose-300",
@@ -58,7 +63,25 @@ const MATERIALITY_CONFIG = {
     badgeClass: "bg-slate-100 text-slate-600 border-slate-300",
     sectionClass: "border-l-4 border-l-slate-200 bg-muted/20",
   },
-} as const;
+  needs_review: {
+    label: "Belum Terklasifikasi",
+    badgeClass: "bg-amber-100 text-amber-800 border-amber-300",
+    sectionClass: "border-l-4 border-l-amber-400 bg-amber-50/40",
+  },
+};
+
+/**
+ * Total, exhaustive mapping from a diff row to its display bucket.
+ * There is deliberately NO `??`-to-immaterial fallback: a failed
+ * classification — or any unrecognised future value — renders as the loud
+ * amber "Belum Terklasifikasi" state, never as quiet grey (LC-41).
+ */
+function matKey(row: VersionDiffRow): MatKey {
+  if (row.classification_status === "failed") return "needs_review";
+  if (row.materiality === "material") return "material";
+  if (row.materiality === "immaterial") return "immaterial";
+  return "needs_review";
+}
 
 // ── Diff change card ──────────────────────────────────────────────────────────
 
@@ -69,10 +92,12 @@ function DiffCard({ row, jobId, onNavigateReview, onStartAnalysis, triggeringAna
   onStartAnalysis: () => void;
   triggeringAnalysis: boolean;
 }) {
-  const mat = MATERIALITY_CONFIG[row.materiality] ?? MATERIALITY_CONFIG.immaterial;
+  const key = matKey(row);
+  const mat = MATERIALITY_CONFIG[key];
   const kind = CHANGE_KIND_CONFIG[row.change_kind] ?? CHANGE_KIND_CONFIG.modified;
   const KindIcon = kind.icon;
-  const isMaterial = row.materiality === "material";
+  const isMaterial = key === "material";
+  const isUnclassified = key === "needs_review";
 
   return (
     <div className={`rounded-md border border-border ${mat.sectionClass} overflow-hidden`}>
@@ -84,7 +109,10 @@ function DiffCard({ row, jobId, onNavigateReview, onStartAnalysis, triggeringAna
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge className={`text-xs border ${kind.badgeClass}`}>{kind.label}</Badge>
-          <Badge className={`text-xs border ${mat.badgeClass}`}>{mat.label}</Badge>
+          <Badge className={`text-xs border ${mat.badgeClass}`}>
+            {isUnclassified && <HelpCircle className="w-3 h-3 mr-1 inline" />}
+            {mat.label}
+          </Badge>
           {isMaterial && jobId && (
             <button
               onClick={() => onNavigateReview(row.clause_ref)}
@@ -113,13 +141,22 @@ function DiffCard({ row, jobId, onNavigateReview, onStartAnalysis, triggeringAna
         </div>
       </div>
 
-      {/* Materiality reason */}
-      {row.materiality_reason && (
-        <div className="px-4 py-2 border-b border-border/30 bg-muted/10">
-          <p className="text-xs text-muted-foreground italic leading-relaxed">
-            {row.materiality_reason}
+      {/* Materiality reason — or the honest unclassified state */}
+      {isUnclassified ? (
+        <div className="px-4 py-2 border-b border-amber-200/60 bg-amber-50/60">
+          <p className="text-xs text-amber-800 leading-relaxed">
+            Perubahan ini belum bisa diklasifikasikan secara otomatis — tinjau
+            klausul ini secara mandiri. Perubahan tetap ditampilkan di bawah.
           </p>
         </div>
+      ) : (
+        row.materiality_reason && (
+          <div className="px-4 py-2 border-b border-border/30 bg-muted/10">
+            <p className="text-xs text-muted-foreground italic leading-relaxed">
+              {row.materiality_reason}
+            </p>
+          </div>
+        )
       )}
 
       {/* Text content */}
@@ -272,11 +309,14 @@ export default function DiffPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  // The "material only" filter keeps unclassified changes visible — a change
+  // whose classification failed must never be hidden by a filter (LC-41).
   const filteredDiffs = diff
     ? showMaterialOnly
-      ? diff.diffs.filter((d) => d.materiality === "material")
+      ? diff.diffs.filter((d) => matKey(d) !== "immaterial")
       : diff.diffs
     : [];
+  const reviewIncomplete = !!diff && !diff.review_complete;
 
   if (loading) {
     return (
@@ -321,7 +361,7 @@ export default function DiffPage() {
               Tinjau Analisis
               <ArrowRight className="w-3.5 h-3.5" />
             </Button>
-          ) : diff && diff.material_count > 0 && (
+          ) : diff && (diff.material_count > 0 || diff.unclassified_count > 0) && (
             <Button
               size="sm"
               variant="outline"
@@ -382,13 +422,19 @@ export default function DiffPage() {
                       {diff.material_count} material
                     </span>
                   )}
+                  {diff.unclassified_count > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      <HelpCircle className="w-3 h-3" />
+                      {diff.unclassified_count} belum terklasifikasi
+                    </span>
+                  )}
                   {diff.immaterial_count > 0 && (
                     <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                       <Info className="w-3 h-3" />
                       {diff.immaterial_count} tidak material
                     </span>
                   )}
-                  {diff.material_count > 0 && diff.immaterial_count > 0 && (
+                  {(diff.material_count > 0 || diff.unclassified_count > 0) && diff.immaterial_count > 0 && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -415,7 +461,14 @@ export default function DiffPage() {
               <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border">
                 <GitBranch className="w-3 h-3 text-muted-foreground shrink-0" />
                 <p className="text-xs text-muted-foreground">
-                  {diff.diff_source === "tracked_changes" ? (
+                  {diff.tc_parse_status === "failed" ? (
+                    <span className="text-amber-800">
+                      <strong>Lapisan revisi (Track Changes) tidak dapat dibaca</strong> —
+                      perbandingan di bawah dihitung dari perbedaan teks antar versi dan
+                      mungkin tidak mencakup semua revisi pihak lain. Pastikan dokumen
+                      yang di-upload dalam format .docx dan terstruktur.
+                    </span>
+                  ) : diff.diff_source === "tracked_changes" ? (
                     <>
                       <strong>Berdasarkan Track Changes dalam dokumen</strong> —
                       perubahan diambil langsung dari revisi yang ditandai dalam file DOCX.
@@ -430,8 +483,35 @@ export default function DiffPage() {
               </div>
             </div>
 
+            {/* Review-incomplete banner — persistent, not dismissible: blocks
+                the claim of a completed review, not the reading (LC-41). */}
+            {reviewIncomplete && (
+              <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+                <HelpCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-amber-900">
+                    Perbandingan belum lengkap
+                  </p>
+                  <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                    {diff.unclassified_count > 0 && (
+                      <>
+                        {diff.unclassified_count} dari {diff.total_changes} perubahan
+                        belum bisa diklasifikasikan.{" "}
+                      </>
+                    )}
+                    {diff.tc_parse_status === "failed" && (
+                      <>Lapisan revisi (Track Changes) tidak dapat dibaca dari berkas ini.{" "}</>
+                    )}
+                    Semua perubahan tetap ditampilkan di bawah — tinjau perubahan yang
+                    belum terklasifikasi secara mandiri, atau coba analisis ulang.
+                    Pastikan dokumen yang di-upload dalam format .docx dan terstruktur.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Expired-analysis banner — persists until creator starts a new analysis or dismisses */}
-            {!diff.job_id && diff.material_count > 0 && showExpiredBanner && (
+            {!diff.job_id && (diff.material_count > 0 || diff.unclassified_count > 0) && showExpiredBanner && (
               <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
                 <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
@@ -467,7 +547,7 @@ export default function DiffPage() {
             )}
 
             {/* No-analysis prompt — shown when there are material changes but no completed job and no expired banner */}
-            {!diff.job_id && diff.material_count > 0 && !showExpiredBanner && (
+            {!diff.job_id && (diff.material_count > 0 || diff.unclassified_count > 0) && !showExpiredBanner && (
               <div className="flex items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 p-4">
                 <Sparkles className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
@@ -475,7 +555,7 @@ export default function DiffPage() {
                     Analisis belum tersedia untuk versi ini
                   </p>
                   <p className="text-xs text-violet-700 mt-0.5 leading-relaxed">
-                    Terdapat {diff.material_count} perubahan material yang perlu ditinjau. Mulai analisis untuk mendapatkan saran negosiasi dan identifikasi risiko.
+                    Terdapat {diff.material_count + diff.unclassified_count} perubahan yang perlu ditinjau. Mulai analisis untuk mendapatkan saran negosiasi dan identifikasi risiko.
                   </p>
                 </div>
                 <Button
@@ -494,7 +574,8 @@ export default function DiffPage() {
               </div>
             )}
 
-            {/* Change list */}
+            {/* Change list — three exhaustive sections (material, unclassified,
+                immaterial); every row belongs to exactly one via matKey. */}
             {filteredDiffs.length > 0 ? (
               <div className="space-y-3">
                 {/* Material section header */}
@@ -504,7 +585,7 @@ export default function DiffPage() {
                   </p>
                 )}
                 {filteredDiffs
-                  .filter((d) => showMaterialOnly || d.materiality === "material")
+                  .filter((d) => matKey(d) === "material")
                   .map((row) => (
                     <DiffCard
                       key={row.id}
@@ -516,6 +597,28 @@ export default function DiffPage() {
                     />
                   ))}
 
+                {/* Unclassified section — co-equal in weight to material,
+                    distinct in kind (amber, question mark), never hidden. */}
+                {filteredDiffs.some((d) => matKey(d) === "needs_review") && (
+                  <>
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide px-1 pt-2">
+                      Belum Terklasifikasi ({diff.unclassified_count})
+                    </p>
+                    {filteredDiffs
+                      .filter((d) => matKey(d) === "needs_review")
+                      .map((row) => (
+                        <DiffCard
+                          key={row.id}
+                          row={row}
+                          jobId={diff.job_id}
+                          onNavigateReview={handleNavigateReview}
+                          onStartAnalysis={handleTriggerAnalysis}
+                          triggeringAnalysis={triggeringAnalysis}
+                        />
+                      ))}
+                  </>
+                )}
+
                 {/* Immaterial section header */}
                 {!showMaterialOnly && diff.immaterial_count > 0 && (
                   <>
@@ -523,7 +626,7 @@ export default function DiffPage() {
                       Perubahan Tidak Material ({diff.immaterial_count})
                     </p>
                     {filteredDiffs
-                      .filter((d) => d.materiality === "immaterial")
+                      .filter((d) => matKey(d) === "immaterial")
                       .map((row) => (
                         <DiffCard
                           key={row.id}
@@ -541,9 +644,13 @@ export default function DiffPage() {
               <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
                 <Scale className="w-10 h-10 text-primary/30" />
                 <p className="text-sm text-muted-foreground">
-                  {showMaterialOnly
-                    ? "Tidak ada perubahan material yang terdeteksi."
-                    : "Tidak ada perubahan yang terdeteksi antara kedua versi."}
+                  {/* The all-clear sentence is structurally unreachable while
+                      the review is incomplete (LC-41). */}
+                  {reviewIncomplete
+                    ? "Perbandingan belum lengkap — sebagian pemeriksaan tidak dapat diselesaikan. Coba analisis ulang."
+                    : showMaterialOnly
+                      ? "Tidak ada perubahan material yang terdeteksi."
+                      : "Tidak ada perubahan yang terdeteksi antara kedua versi."}
                 </p>
               </div>
             )}
