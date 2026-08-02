@@ -219,7 +219,7 @@ function FlagDetail({
             <SeverityBadge severity={flag.severity} />
             <FindingTypeBadge findingType={flag.finding_type} />
             <span className="text-xs text-muted-foreground">
-              {DOMAIN_LABELS[flag.domain] ?? flag.domain}
+              {DOMAIN_LABELS[flag.domain] ?? flag.domain /* silent-failure-ok: cosmetic label, falls back to raw key */}
             </span>
           </div>
           <h2 className="text-base font-semibold leading-snug">{flag.summary}</h2>
@@ -573,7 +573,7 @@ export default function ReviewPage() {
                 Kategori risiko yang belum terperiksa ({results.domains_failed} dari{" "}
                 {results.domains_total}):{" "}
                 {results.failed_domains
-                  .map((d) => DOMAIN_LABELS[d] ?? d)
+                  .map((d) => DOMAIN_LABELS[d] ?? d) // silent-failure-ok: cosmetic label, falls back to raw key
                   .join(", ")}
                 .{" "}
               </>
@@ -672,7 +672,7 @@ export default function ReviewPage() {
                         <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${cfg.dotClass}`} />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-muted-foreground truncate">
-                            {DOMAIN_LABELS[flag.domain] ?? flag.domain}
+                            {DOMAIN_LABELS[flag.domain] ?? flag.domain /* silent-failure-ok: cosmetic label, falls back to raw key */}
                           </p>
                           <p className="text-sm leading-snug mt-0.5 line-clamp-2">
                             {flag.summary}
@@ -708,7 +708,7 @@ export default function ReviewPage() {
                       <Info className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-muted-foreground truncate">
-                          {DOMAIN_LABELS[flag.domain] ?? flag.domain}
+                          {DOMAIN_LABELS[flag.domain] ?? flag.domain /* silent-failure-ok: cosmetic label, falls back to raw key */}
                         </p>
                         <p className="text-sm leading-snug mt-0.5 line-clamp-2 text-muted-foreground">
                           {flag.summary}

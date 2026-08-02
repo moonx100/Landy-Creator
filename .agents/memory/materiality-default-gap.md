@@ -47,3 +47,19 @@ OPEN as of 31 Jul 2026. `scripts/governance/validate-silent-failure.sh` fails on
 both this and the missing `needs_review` vocabulary.
 
 Related: `.claude/rules/silent-failure.md`, `MEMORY.md`.
+
+---
+
+## RESOLVED — 2 Aug 2026 (branch fix/unknown-state-lc41, the LC-41 migration)
+
+Implemented as one instance of the unified unknown-state pattern, not the
+original third-enum candidate fix: `materiality` is nullable with companion
+`classification_status ('ok'|'low_confidence'|'failed')` + `classification_error`,
+jointly CHECK-constrained (`version_diffs_materiality_state`) so "failed but
+labelled immaterial" is unrepresentable (migration 0010). All four fallback
+sites in `diff/materiality.py` now return `MaterialityResult(status='failed',
+materiality=None)`. Frontend `MATERIALITY_CONFIG` is a total mapping (no `??`);
+unclassified rows render loud amber "Belum Terklasifikasi"; the all-clear
+sentence is gated on `review_complete`. Forced-failure semantics locked by
+`tests/test_unknown_state.py`. `validate-silent-failure.sh` checks #3/#4 pass.
+Full decision record: Build Action Items LC-41.

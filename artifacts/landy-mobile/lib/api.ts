@@ -126,8 +126,11 @@ export interface VersionDiffRow {
   to_version: string;
   clause_ref: string | null;
   change_kind: 'added' | 'removed' | 'modified';
-  materiality: 'material' | 'immaterial';
+  /** null when classification failed — never coerce to 'immaterial'. */
+  materiality: 'material' | 'immaterial' | null;
   materiality_reason: string | null;
+  classification_status: 'ok' | 'low_confidence' | 'failed';
+  classification_error: string | null;
   before_text: string | null;
   after_text: string | null;
 }

@@ -47,6 +47,19 @@ const CHANGE_KIND_CONFIG = {
   },
 } as const;
 
+// Total mapping — an unrecognised change kind renders its raw label loudly
+// instead of being silently relabelled "Diubah" (LC-41 pattern).
+function changeKindConfig(kind: string) {
+  const cfg = CHANGE_KIND_CONFIG[kind as keyof typeof CHANGE_KIND_CONFIG];
+  if (cfg) return cfg;
+  return {
+    label: kind,
+    badgeClass: "bg-amber-100 text-amber-800 border-amber-300",
+    icon: HelpCircle,
+    textSide: "both" as const,
+  };
+}
+
 type MatKey = "material" | "immaterial" | "needs_review";
 
 const MATERIALITY_CONFIG: Record<
@@ -94,7 +107,7 @@ function DiffCard({ row, jobId, onNavigateReview, onStartAnalysis, triggeringAna
 }) {
   const key = matKey(row);
   const mat = MATERIALITY_CONFIG[key];
-  const kind = CHANGE_KIND_CONFIG[row.change_kind] ?? CHANGE_KIND_CONFIG.modified;
+  const kind = changeKindConfig(row.change_kind);
   const KindIcon = kind.icon;
   const isMaterial = key === "material";
   const isUnclassified = key === "needs_review";

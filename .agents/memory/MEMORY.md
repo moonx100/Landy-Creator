@@ -13,10 +13,15 @@ Append, don't delete. Supersede inline with a dated line.
 
 ## Open findings (gates that fail on a clean checkout)
 
-- [Redaction gap on the diff path](redaction-diff-path-gap.md) — `diff/materiality.py` sends non-redacted clause text to the LLM. Highest-priority correctness item. → `.claude/rules/redact-before-inference.md`
-- [Extraction coverage gap](extraction-coverage-gap.md) — `extraction_ok` rests on `bool(text.strip())`; a 51-character extraction from a 20-page contract passes. → `.claude/rules/extraction-coverage.md`
-- [Materiality default gap](materiality-default-gap.md) — a failed classification is persisted as `"immaterial"`. → `.claude/rules/silent-failure.md`
+- (none as of 2 Aug 2026 — validate-all is ALL PASS on branch fix/unknown-state-lc41)
+
+## Resolved findings (kept for audit trail)
+
+- [Redaction gap on the diff path](redaction-diff-path-gap.md) — RESOLVED 2 Aug 2026 by PR fix/redaction-all-channels; `_format_batch()` now redacts via the version-scoped mapping.
+- [Extraction coverage gap](extraction-coverage-gap.md) — RESOLVED by PR fix/extraction-table-coverage; real floors + coverage ratios in `extraction.py`.
+- [Materiality default gap](materiality-default-gap.md) — RESOLVED 2 Aug 2026 by the LC-41 unknown-state migration (nullable materiality + classification_status, joint CHECK).
 
 ## Decisions
 
 - [Governance convention](governance-convention-decision.md) — why `.claude/` and `.agents/` both exist and neither absorbs the other.
+- [Unified unknown-state pattern (LC-41)](unknown-state-pattern.md) — value vs. operational status are separate, jointly CHECK-constrained fields; no human-lawyer framing in Creator copy; >50%-failed = failed job + quota refund + carry-forward retry.

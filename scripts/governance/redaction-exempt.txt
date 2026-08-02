@@ -3,4 +3,8 @@
 # justification comment. An entry here means: the input is provably redacted
 # upstream. Every addition needs MV's sign-off in the PR.
 #
-# (empty — no exemptions granted)
+# artifacts/landy-api/tests/test_unknown_state.py — test double: a fake LLM
+# client whose chat_complete() raises immediately to force the failure path.
+# No document text and no network call ever occurs; the fixture text is
+# synthetic ("Pasal 1. Uji."). Added 2026-08-02 (LC-38); MV sign-off via PR.
+artifacts/landy-api/tests/test_unknown_state.py

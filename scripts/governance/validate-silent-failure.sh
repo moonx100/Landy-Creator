@@ -52,7 +52,9 @@ else
 fi
 
 # 4. a surfaced review/unavailable state must exist in the domain vocabulary
-if grep -rIqE "needs_review|classification_unavailable|review_required|analysis_incomplete" \
+#    (extended 2026-08-02 with the LC-41 vocabulary actually implemented:
+#    classification_status + parse_ok/parse_status)
+if grep -rIqE "needs_review|classification_unavailable|review_required|analysis_incomplete|classification_status|parse_ok|parse_status" \
    "$API" --include="*.py" 2>/dev/null; then
   echo "PASS silent-failure: a surfaced review/unavailable state exists"
 else

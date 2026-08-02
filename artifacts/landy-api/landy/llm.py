@@ -172,20 +172,20 @@ def extract_json(content: str) -> dict:
     # 1. Direct parse
     try:
         return json.loads(content)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # silent-failure-ok: parse-strategy cascade, raises ValueError at end
         pass
     # 2. Extract from ```json ... ``` or ``` ... ```
     match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", content)
     if match:
         try:
             return json.loads(match.group(1))
-        except json.JSONDecodeError:
+        except json.JSONDecodeError:  # silent-failure-ok: parse-strategy cascade, raises ValueError at end
             pass
     # 3. Find first { ... } block
     match2 = re.search(r"\{[\s\S]+\}", content)
     if match2:
         try:
             return json.loads(match2.group(0))
-        except json.JSONDecodeError:
+        except json.JSONDecodeError:  # silent-failure-ok: parse-strategy cascade, raises ValueError at end
             pass
     raise ValueError(f"No valid JSON found in model response: {content[:300]!r}")
