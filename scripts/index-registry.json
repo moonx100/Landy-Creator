@@ -1,0 +1,11 @@
+{
+  "//": "Registry of (source -> index) pairs kept in sync by scripts/src/index-headings.ts. Add an entry here to register a new context-dense file for heading-map auto-sync. registered_when documents the judgment call for WHY this file qualifies (not a hard line-count gate — see the generator header for the reasoning).",
+  "entries": [
+    {
+      "id": "claude-md",
+      "source": "CLAUDE.md",
+      "index": "CLAUDE-INDEX.md",
+      "registered_when": "2026-08-02, governance apparatus session — 219 lines, 12 H2 sections, read at the start of every session (Step 0); a heading map is worth having even short of an arbitrary 250-line bar."
+    }
+  ]
+}

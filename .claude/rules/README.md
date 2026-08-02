@@ -64,6 +64,7 @@ row referencing it — the drift guard that keeps this table honest.
 | Rule-file shape itself | *(this file — no product rule)* | `validate-gate-first.sh` | mechanical |
 | `.agents/memory/*.md` orphan/link health | *(no product rule — hygiene)* | `validate-bridge-health.sh` | mechanical |
 | `.agents/memory/*.md` staleness vs. passing gates | *(no product rule — hygiene)* | `validate-memory-sync.sh` | mechanical + self-audit |
+| Registered `*-INDEX.md` heading maps (e.g. `CLAUDE-INDEX.md`) | *(no product rule — hygiene)* | `validate-index-sync.sh` (wraps `scripts/src/index-headings.ts --check`) | mechanical |
 | Money-path commit (money-path file list per `silent-failure.md` + `unknown-state.md`) | `session-reconciliation.md` | `money-path-guard.sh` (PreToolUse hard-stop) | mechanical + self-audit |
 
 **Reading this table:** "mechanical" means a script's exit code is the verdict;
