@@ -40,11 +40,18 @@ def test_no_replit_ai_integrations_fields_on_settings():
     assert not hasattr(s, "effective_llm_base_url")
 
 
-def test_model_default_is_not_a_placeholder():
+def test_model_default_is_not_a_placeholder(monkeypatch):
+    # Settings pulls LLM_MODEL from the live environment (pydantic
+    # BaseSettings), so an operator-configured real model — even one that
+    # happens to match a string once used as a placeholder — would falsely
+    # trip this check unless the ambient env var is cleared first. This
+    # isolates the assertion to the actual code-level default in config.py.
+    monkeypatch.delenv("LLM_MODEL", raising=False)
     s = _settings()
-    # The old default ("gpt-5.6-terra") was never a real model id.
+    # The old hardcoded default ("gpt-5.6-terra") was never a real model id;
+    # confirm the code fell back to today's real default, not that string.
     assert s.llm_model != "gpt-5.6-terra"
-    assert s.llm_model  # non-empty
+    assert s.llm_model == "gpt-4o"
 
 
 def test_get_llm_client_raises_without_api_key(monkeypatch):
