@@ -23,11 +23,14 @@ from *the model call failed and the code filled in a default*. The second is a
 missed material risk in a contract the user is about to sign. A reassuring
 default on a failure path is the most dangerous line of code in this repo.
 
-`diff/materiality.py` currently violates this: on LLM failure it returns
-`("immaterial", "Klasifikasi tidak tersedia")` and documents that it "never
-raises." The reason string is honest but the classification field is not, and
-downstream consumers read the field. Logged in
-`.agents/memory/materiality-default-gap.md`.
+`diff/materiality.py` used to violate this on LLM failure, returning
+`("immaterial", "Klasifikasi tidak tersedia")` despite documenting that it
+"never raises." **Resolved 2 Aug 2026** by the LC-41 unknown-state migration —
+see `.claude/rules/unknown-state.md` and
+`.agents/memory/materiality-default-gap.md`. This is Class 1 in
+`.agents/memory/bug-classes.md`: the reassuring-default shape recurs across
+sites, which is why the fix generalised into its own rule rather than staying a
+one-file patch.
 
 ---
 

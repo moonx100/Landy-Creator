@@ -25,3 +25,8 @@ Append, don't delete. Supersede inline with a dated line.
 
 - [Governance convention](governance-convention-decision.md) — why `.claude/` and `.agents/` both exist and neither absorbs the other.
 - [Unified unknown-state pattern (LC-41)](unknown-state-pattern.md) — value vs. operational status are separate, jointly CHECK-constrained fields; no human-lawyer framing in Creator copy; >50%-failed = failed job + quota refund + carry-forward retry.
+
+## Recurring shapes and tooling
+
+- [Bug-class registry](bug-classes.md) — failure *shapes* seen more than once (silent fallback, evidence drift, toolchain side-effects), so the next instance is cheap to spot.
+- [Claude Code advancements](claude-code-advancements.md) — shipped/in-progress/deferred governance & workflow tooling for how Claude Code operates on this repo (distinct from product findings).

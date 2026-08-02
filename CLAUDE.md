@@ -32,6 +32,13 @@ Before any Creator work, read, in order:
 
 Then `git pull` before writing anything (see *Two write paths* below).
 
+**Before executing any task tied to a Notion Build Action Items row (an LC-#),
+read that row's current Status and page body first.** Notion is the canonical
+to-do source — it is written back to at the end of every session that touches
+it (see Auto-update protocol below), so a stale local assumption about an LC-#'s
+state is a bug, not a shortcut. Act only on `LC-#` / `Ref` numbers per the
+Build Log's numbering-authority callout.
+
 ## Rule Promotion Boundary
 
 Only `CLAUDE.md`, `.claude/rules/*.md`, registered hooks, `.claude/skills/*`, and
@@ -186,9 +193,27 @@ After substantive work, offer durable learnings, classified:
 - **Tier 1** → a `.claude/rules/` edit (binding; needs a validator).
 - **Tier 2** → a new note in `.agents/memory/` + a line in `MEMORY.md`.
 - **Tier 3** → mention in the PR description only.
+- **Tier 4** → a Claude Code tooling/workflow/governance idea (not a product
+  finding, not a bug) → `.agents/memory/claude-code-advancements.md`, filed as
+  Shipped / In progress / Queued-deferred with a revisit trigger.
+
+A recurring *failure shape* (not a one-off) additionally gets logged in
+`.agents/memory/bug-classes.md`, whether or not it is promoted to a rule.
 
 Write only after MV approval. MV is a former financial-services regulator and
 practising Indonesian advocate — that domain authority is a core project asset.
 Invite MV's verification of legal reasoning; never assert legal conclusions
 autonomously, and never resolve an open legal question by picking the plausible
 answer.
+
+**Session-close reconciliation.** At the end of any session that touched
+money-path files (`.claude/rules/silent-failure.md`, `unknown-state.md`, and
+every file each rule's FAIL condition names) or a Notion Build Action Items row,
+run `/wrap-session`: present the errors/hiccups/lessons found, classify them
+per the tiers above, get MV's permission, then write the approved learnings to
+**both** the Claude corpus (rule/memory/bug-class/advancement files, with any
+affected INDEX regenerated) **and** Notion — updating the touched LC-#'s Status
+and appending a factual page-body progress note (what was done, verified, and
+left open, cited to commits/validators/tests — never fabricated). Nothing gets
+left behind on either side. Full protocol: `.claude/skills/wrap-session/SKILL.md`;
+binding shape: `.claude/rules/session-reconciliation.md`.
