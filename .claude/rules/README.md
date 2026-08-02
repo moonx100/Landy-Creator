@@ -16,7 +16,7 @@ condition** + **WHERE-checked** + **Enforcement strength**.
 | `tracked-changes-authenticity.md` | Real OOXML `w:ins`/`w:del`, never simulated formatting. |
 | `tenant-isolation.md` | Explicit `WHERE user_id` is the isolation layer; RLS is second. |
 | `secrets-hygiene.md` | Nothing secret and no user data enters git. The repo is public. |
-| `unknown-state.md` | Every classification/parse step has a representable, rendered "we don't know" state (LC-41). **Proposed 2026-08-02 — binds after MV sign-off on the LC-41 PR.** |
+| `unknown-state.md` | Every classification/parse step has a representable, rendered "we don't know" state (LC-41). **Binding — MV signed off 2 Aug 2026.** |
 
 ## Carried from landy-workspace (adapted to Creator paths)
 
@@ -61,7 +61,7 @@ row referencing it — the drift guard that keeps this table honest.
 | DOCX export / redline generation | `tracked-changes-authenticity.md` | `validate-tracked-changes.sh` | mechanical + self-audit |
 | Any route touching tenant-owned data | `tenant-isolation.md` | `validate-tenant-isolation.sh` | mechanical + self-audit |
 | Any commit / any tracked file | `secrets-hygiene.md` | `validate-secrets-hygiene.sh` | mechanical |
-| Classification / parse step with a user-visible output | `unknown-state.md` (**Proposed** — binds after explicit MV sign-off, not implied by a merge) | `validate-silent-failure.sh` + `validate-silent-failure-web.sh` | mechanical + self-audit |
+| Classification / parse step with a user-visible output | `unknown-state.md` (binding — MV signed off 2 Aug 2026) | `validate-silent-failure.sh` + `validate-silent-failure-web.sh` | mechanical + self-audit |
 | Extraction / LLM / analysis failure path | `silent-failure.md` | `validate-silent-failure.sh` | mechanical + self-audit |
 | Any write to `statutes.status` | `status-integrity.md` | `validate-status-integrity.sh` + `validate-provenance-schema.sh` | mechanical |
 | Corpus schema / risk-flag citations | `provenance.md` | `validate-provenance-schema.sh` + `validate-legal-advice-framing.sh` | mechanical + self-audit |

@@ -105,6 +105,34 @@ that actually runs, not the first one merely found on PATH. Fixed in
 `scripts/governance/money-path-guard.sh`; apply the same probe pattern to any
 future script that shells out to `python`/`python3`/`node`/etc. by name.
 
+## Class 5 — Checkout-dependent content hash (autocrlf non-determinism)
+
+**Shape:** a tool computes a content hash (sha256 or similar) directly from a
+file's bytes as read off disk, on a repo with `core.autocrlf=true` (this repo
+has it). A plain `git checkout` on Windows can hand back CRLF line endings
+for content that was generated or previously hashed as LF — so the same
+logical content hashes differently depending on which checkout produced the
+bytes on disk, even though nothing real changed. Any "is this stale?" check
+built on that hash gives false positives (or, worse, false negatives if the
+comparison happens to line up by accident).
+
+**Instance (2026-08-02):** `scripts/src/index-headings.ts`'s first draft
+hashed `CLAUDE.md` directly. Editing the file, running `--check` (correctly
+FAIL), then `git checkout` to revert produced a *second* FAIL — the reverted
+file's line endings didn't match what was originally hashed, even though the
+content was logically identical.
+
+**Detection:** a hash-based staleness/diff check that fails after a `git
+checkout` revert, or that disagrees between two checkouts of the identical
+commit on the same machine.
+
+**Mitigation:** normalize line endings (`content.replace(/\r\n/g, "\n")` or
+equivalent) before hashing, line-counting, or diffing file content — in
+every direction: the freshly-read source, the on-disk comparison target, and
+whatever gets written out. Fixed in `index-headings.ts`
+(`normalizeLineEndings`); apply the same normalization to any future
+tool in this repo that hashes or diffs file content by bytes.
+
 ---
 
 Related: [[MEMORY.md]], `.claude/rules/silent-failure.md`, `.claude/rules/unknown-state.md`,

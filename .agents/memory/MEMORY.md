@@ -25,6 +25,7 @@ Append, don't delete. Supersede inline with a dated line.
 
 - [Governance convention](governance-convention-decision.md) — why `.claude/` and `.agents/` both exist and neither absorbs the other.
 - [Unified unknown-state pattern (LC-41)](unknown-state-pattern.md) — value vs. operational status are separate, jointly CHECK-constrained fields; no human-lawyer framing in Creator copy; >50%-failed = failed job + quota refund + carry-forward retry.
+- [Governance apparatus decision](governance-apparatus-decision.md) — why the F4TALITY-inspired governance layer was adopted (2 Aug 2026), the six pieces, and MV's two amendments (mandatory Notion write-back; bug-classes vs. advancements separation).
 
 ## Recurring shapes and tooling
 

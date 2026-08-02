@@ -1,7 +1,9 @@
 # Rule: The unknown state is representable — absence of an answer is never a negative answer
 
-> **PROPOSED 2026-08-02 — binds only after MV sign-off on the LC-41 PR.**
-> Decided design: Build Action Items LC-41 (MV decisions recorded there).
+> **BINDING — MV signed off 2 Aug 2026** (explicit approval of the rule text
+> itself, via `/wrap-session` on the governance-apparatus session; separate
+> from and after the LC-41 PR #5 merge). Decided design: Build Action Items
+> LC-41 (MV decisions recorded there).
 
 ## What the rule requires
 
