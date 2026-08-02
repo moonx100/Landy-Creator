@@ -13,6 +13,9 @@ run() { echo "== $1 =="; bash "scripts/governance/$1" || rc=1; echo; }
 # shape / structure (domain-blind)
 run validate-gate-first.sh
 run validate-bridge-health.sh
+run validate-memory-sync.sh
+run validate-enforcement-registry.sh
+run validate-index-sync.sh
 
 # secrets first — cheapest gate, worst failure
 run validate-secrets-hygiene.sh
