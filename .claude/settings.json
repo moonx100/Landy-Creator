@@ -1,5 +1,5 @@
 {
-  "//": "LANDY Creator hooks. The UserPromptSubmit reminder is ADVISORY only. Binding force comes from .claude/rules/ + scripts/governance/validate-all.sh run at task close and in CI.",
+  "//": "LANDY Creator hooks. UserPromptSubmit is ADVISORY. PreToolUse money-path-guard is a real hard-stop (exit 2 blocks) but fails OPEN on its own internal errors, by design — see scripts/governance/money-path-guard.sh header. Stop is an advisory reminder for the /wrap-session reconciliation ritual. Binding force otherwise comes from .claude/rules/ + scripts/governance/validate-all.sh run at task close and in CI.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -8,6 +8,28 @@
           {
             "type": "command",
             "command": "echo '[LANDY Creator] Load CLAUDE.md + .claude/rules/. Money-path = a wrong or missed legal claim. Redact PII before every chat_complete(); non-empty != extracted; no reassuring defaults on failure paths; real OOXML w:ins/w:del only; tenant isolation = explicit WHERE user_id (RLS is inert under the superuser role); output is information, not legal advice. git pull first; branch + PR. Run scripts/governance/validate-all.sh before close.'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/governance/money-path-guard.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/governance/wrap-session-reminder.sh"
           }
         ]
       }

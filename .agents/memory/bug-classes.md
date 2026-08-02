@@ -79,6 +79,32 @@ lockfiles, generated indexes, and config files you did not intend to touch.
 never `git add -A` without scanning the file list. Recorded in
 [[landy-creator-toolchain]] (personal memory).
 
+## Class 4 — `command -v` finds a binary that fails at invocation (Windows PATH stub)
+
+**Shape:** a script picks an interpreter with `command -v python3 || command -v
+python`, trusting that whichever resolves first actually runs. On Windows,
+`python3` (and sometimes `python`) can be a Microsoft Store **install-stub**
+that IS on PATH and DOES satisfy `command -v`, but exits with "Python was not
+found; run without arguments to install from the Microsoft Store..." the
+moment it's actually invoked.
+
+**Instance (2026-08-02):** `money-path-guard.sh`'s first draft picked
+`python3` this way while building it; every hook invocation silently hit the
+stub, printed a confusing "Python was not found" line, and the script's own
+`|| fail_open` swallowed it into a generic "failed to parse hook payload
+JSON" message that gave no hint the real cause was a PATH stub.
+
+**Detection:** a "found but failed" pattern — `command -v X` succeeds,
+`X --version` (or any real invocation) fails. Generic error messages
+downstream of an interpreter dispatch are a tell.
+
+**Mitigation:** never trust `command -v` alone to select an interpreter that
+will be invoked later in the same script. Probe candidates with a cheap real
+invocation (`"$candidate" --version >/dev/null 2>&1`) and select the first one
+that actually runs, not the first one merely found on PATH. Fixed in
+`scripts/governance/money-path-guard.sh`; apply the same probe pattern to any
+future script that shells out to `python`/`python3`/`node`/etc. by name.
+
 ---
 
 Related: [[MEMORY.md]], `.claude/rules/silent-failure.md`, `.claude/rules/unknown-state.md`,
