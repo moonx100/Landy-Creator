@@ -220,11 +220,39 @@ class TestEmailDraftReusesVersionScopedMapping:
         from landy.database import engine
         import landy.export.email_draft as mod
 
+        user_id = str(uuid.uuid4())
+        document_id = str(uuid.uuid4())
         version_id = str(uuid.uuid4())
-        # Seed an existing mapping for this version, as the worker's
-        # document-level redact() pass would have done.
+        # redaction_mappings.version_id carries a real FK to document_versions,
+        # so the parent chain (users -> documents -> document_versions) has to
+        # exist before we can seed a mapping row for it.
         with engine.begin() as conn:
             conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+            conn.execute(
+                sa.text(
+                    "INSERT INTO users (id, email) VALUES (:uid, :email)"
+                ),
+                {"uid": user_id, "email": f"redaction-test-{user_id}@example.invalid"},
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO documents (id, user_id, title) "
+                    "VALUES (:did, :uid, 'Kontrak')"
+                ),
+                {"did": document_id, "uid": user_id},
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO document_versions "
+                    "(id, document_id, version_no, source_filename, source_format, "
+                    " storage_key, sha256, extraction_ok) "
+                    "VALUES (:vid, :did, 1, 'kontrak.docx', 'docx', 'test-key', "
+                    " 'test-sha', TRUE)"
+                ),
+                {"vid": version_id, "did": document_id},
+            )
+            # Seed an existing mapping for this version, as the worker's
+            # document-level redact() pass would have done.
             conn.execute(
                 sa.text(
                     "INSERT INTO redaction_mappings (version_id, token, original) "
@@ -287,7 +315,5 @@ class TestEmailDraftReusesVersionScopedMapping:
 
         with engine.begin() as conn:
             conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
-            conn.execute(
-                sa.text("DELETE FROM redaction_mappings WHERE version_id = :vid"),
-                {"vid": version_id},
-            )
+            # Cascades through document_versions/documents/redaction_mappings.
+            conn.execute(sa.text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
