@@ -29,6 +29,22 @@ def _run(sql: str, params: dict | None = None):
         return conn.execute(sa.text(sql), params or {})
 
 
+@pytest.fixture(autouse=True)
+def _clean_ip_bucket():
+    """TestClient reports the client IP as the literal string "testclient",
+    shared across every test in this module (and across separate pytest
+    invocations against the same database). Since the rate limiter now
+    correctly persists failed attempts outside the request transaction,
+    leftover IP-scoped rows from a previous test — or a previous full-suite
+    run within the rolling window — would otherwise trip the IP-level
+    lockout for a test that never itself made anywhere near 15 failed
+    attempts. Start and end each test with that bucket clean.
+    """
+    _run("DELETE FROM otp_verify_attempts WHERE ip_address = 'testclient'")
+    yield
+    _run("DELETE FROM otp_verify_attempts WHERE ip_address = 'testclient'")
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("DEBUG_OTP", "true")
