@@ -289,7 +289,7 @@ function FlagDetail({
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <SeverityBadge severity={flag.severity} />
             <FindingTypeBadge findingType={flag.finding_type} />
-            <span className="text-xs text-muted-foreground">{DOMAIN_LABELS[flag.domain] ?? flag.domain}</span>
+            <span className="text-xs text-muted-foreground">{DOMAIN_LABELS[flag.domain] ?? flag.domain}</span> // silent-failure-ok: cosmetic label, falls back to raw key
           </div>
           <h2 className="text-base font-semibold leading-snug">{flag.summary}</h2>
         </div>
@@ -370,7 +370,7 @@ export default function DemoReviewPage() {
     ...f,
     suggested_edits: f.suggested_edits.map((e) => ({
       ...e,
-      accepted: editId => editId === e.id ? (editState[e.id] ?? null) : null,
+      accepted: editId => editId === e.id ? (editState[e.id] ?? null) : null, // silent-failure-ok: undecided edit state, not a classification
     })),
   }));
 
@@ -378,7 +378,7 @@ export default function DemoReviewPage() {
     ...f,
     suggested_edits: f.suggested_edits.map((e) => ({
       ...e,
-      accepted: editState[e.id] ?? null,
+      accepted: editState[e.id] ?? null, // silent-failure-ok: undecided edit state, not a classification
     })),
   }));
 
@@ -492,7 +492,7 @@ export default function DemoReviewPage() {
                         <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${cfg.dotClass}`} />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-muted-foreground truncate">
-                            {DOMAIN_LABELS[flag.domain] ?? flag.domain}
+                            {DOMAIN_LABELS[flag.domain] ?? flag.domain /* silent-failure-ok: cosmetic label, falls back to raw key */}
                           </p>
                           <p className="text-sm leading-snug mt-0.5 line-clamp-2">{flag.summary}</p>
                           {flag.suggested_edits.length > 0 && (
@@ -525,7 +525,7 @@ export default function DemoReviewPage() {
                       <Info className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-muted-foreground truncate">
-                          {DOMAIN_LABELS[flag.domain] ?? flag.domain}
+                          {DOMAIN_LABELS[flag.domain] ?? flag.domain /* silent-failure-ok: cosmetic label, falls back to raw key */}
                         </p>
                         <p className="text-sm leading-snug mt-0.5 line-clamp-2 text-muted-foreground">
                           {flag.summary}

@@ -38,6 +38,14 @@ const CHANGE_KIND_CONFIG = {
   modified: { label: 'Diubah', colorKey: 'amber' as const },
 };
 
+// Total mapping — an unrecognised change kind renders its raw label loudly
+// instead of being silently relabelled 'Diubah' (LC-41 pattern).
+function changeKindConfig(kind: string): { label: string; colorKey: 'green' | 'red' | 'amber' } {
+  const cfg = CHANGE_KIND_CONFIG[kind as keyof typeof CHANGE_KIND_CONFIG];
+  if (cfg) return cfg;
+  return { label: kind, colorKey: 'amber' };
+}
+
 function DiffCard({
   row,
   jobId,
@@ -55,7 +63,10 @@ function DiffCard({
 }) {
   const styles = makeDiffCardStyles(colors);
   const isMaterial = row.materiality === 'material';
-  const kindCfg = CHANGE_KIND_CONFIG[row.change_kind] ?? CHANGE_KIND_CONFIG.modified;
+  // A failed classification is co-equal in prominence to material — the
+  // change must never render as quiet 'not material' (LC-41).
+  const isUnclassified = row.classification_status === 'failed' || row.materiality == null;
+  const kindCfg = changeKindConfig(row.change_kind);
 
   const kindBg = colors[kindCfg.colorKey + 'Bg' as keyof typeof colors] as string;
   const kindBorder = colors[kindCfg.colorKey + 'Border' as keyof typeof colors] as string;
@@ -67,7 +78,9 @@ function DiffCard({
         styles.card,
         isMaterial
           ? { borderLeftColor: colors.rose, borderLeftWidth: 3 }
-          : { borderLeftColor: colors.border, borderLeftWidth: 3 },
+          : isUnclassified
+            ? { borderLeftColor: colors.amber, borderLeftWidth: 3 }
+            : { borderLeftColor: colors.border, borderLeftWidth: 3 },
       ]}
     >
       {/* Card header */}
@@ -92,23 +105,42 @@ function DiffCard({
             styles.badge,
             isMaterial
               ? { backgroundColor: colors.roseBg, borderColor: colors.roseBorder }
-              : { backgroundColor: colors.muted, borderColor: colors.border },
+              : isUnclassified
+                ? { backgroundColor: colors.amberBg, borderColor: colors.amberBorder }
+                : { backgroundColor: colors.muted, borderColor: colors.border },
           ]}
         >
           <Text
             style={[
               styles.badgeText,
-              { color: isMaterial ? colors.roseForeground : colors.mutedForeground },
+              {
+                color: isMaterial
+                  ? colors.roseForeground
+                  : isUnclassified
+                    ? colors.amberForeground
+                    : colors.mutedForeground,
+              },
             ]}
           >
-            {isMaterial ? 'Material' : 'Tidak Material'}
+            {isMaterial
+              ? 'Material'
+              : isUnclassified
+                ? 'Belum Terklasifikasi'
+                : 'Tidak Material'}
           </Text>
         </View>
       </View>
 
-      {/* Materiality reason */}
-      {row.materiality_reason && (
-        <Text style={styles.reason}>{row.materiality_reason}</Text>
+      {/* Materiality reason — or the honest unclassified state */}
+      {isUnclassified ? (
+        <Text style={[styles.reason, { color: colors.amberForeground }]}>
+          Perubahan ini belum bisa diklasifikasikan secara otomatis — tinjau
+          klausul ini secara mandiri.
+        </Text>
+      ) : (
+        row.materiality_reason && (
+          <Text style={styles.reason}>{row.materiality_reason}</Text>
+        )
       )}
 
       {/* Text content */}

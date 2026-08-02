@@ -37,6 +37,13 @@ class VersionResponse(pydantic.BaseModel):
     extraction_note: Optional[str]
     detected_language: Optional[str]
     uploaded_at: datetime
+    # Parse status of the DOCX revision/comments layer. None = not applicable
+    # (PDF/image); 'failed' = the layer could not be read — distinct from
+    # "no revisions" / "no comments".
+    tc_parse_status: Optional[str] = None
+    tc_parse_note: Optional[str] = None
+    comments_parse_status: Optional[str] = None
+    comments_parse_note: Optional[str] = None
 
     @pydantic.computed_field
     @property
@@ -161,11 +168,29 @@ class AnalysisResultsResponse(pydantic.BaseModel):
     error_message: Optional[str]
     risk_flags: list[RiskFlagResponse]
     # Comments extracted from DOCX comment bubbles for this version.
-    # Empty list when the document is a PDF, has no comments, or comment
-    # parsing failed (non-fatal).
+    # An empty list only means "no comments" when comments_parse_status is
+    # not 'failed' — check the status before rendering an absence claim.
     document_comments: list[DocCommentResponse] = []
-    # Whether the document contained unaccepted tracked changes.
+    # Whether the document contained unaccepted tracked changes. Only
+    # meaningful when tc_parse_status is not 'failed'.
     has_tracked_changes: bool = False
+    # Parse status of the DOCX revision/comments layer (None = not applicable).
+    tc_parse_status: Optional[str] = None
+    tc_parse_note: Optional[str] = None
+    comments_parse_status: Optional[str] = None
+    comments_parse_note: Optional[str] = None
+    # Outcome of document-summary generation ('ok' | 'failed' | None for
+    # legacy jobs). A failed summary is never replaced by raw text.
+    summary_status: Optional[str] = None
+    # Per-domain run accounting — the source of truth for completeness.
+    domains_total: int = 0
+    domains_failed: int = 0
+    # Taxonomy keys of the failed domains, so the UI can list unchecked risk
+    # categories by name (MV decision 2026-08-02).
+    failed_domains: list[str] = []
+    # True when the job crossed the majority-failure threshold and its quota
+    # unit was returned.
+    quota_refunded: bool = False
 
     @pydantic.computed_field
     @property
@@ -176,3 +201,20 @@ class AnalysisResultsResponse(pydantic.BaseModel):
             if flag.severity in counts:
                 counts[flag.severity] += 1
         return counts
+
+    @pydantic.computed_field
+    @property
+    def review_complete(self) -> bool:
+        """True only when every contributing check succeeded.
+
+        Absence claims ("tidak ada temuan risiko", "tidak ada komentar")
+        may only render when this is True — a failed check makes the
+        all-clear structurally underivable (LC-41).
+        """
+        return (
+            self.state == "done"
+            and self.domains_failed == 0
+            and self.tc_parse_status != "failed"
+            and self.comments_parse_status != "failed"
+            and self.summary_status != "failed"
+        )

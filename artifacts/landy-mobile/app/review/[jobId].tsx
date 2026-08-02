@@ -27,6 +27,14 @@ const SEVERITY_CONFIG: Record<string, { label: string; colorKey: string; icon: s
   info: { label: 'Info', colorKey: 'violet', icon: 'info' },
 };
 
+// Total mapping — an unrecognised severity renders loudly, never demoted to
+// the quietest 'info' badge (LC-41/LC-30; frontend twin of the coercion bug).
+function severityConfig(severity: string): { label: string; colorKey: string; icon: string } {
+  const cfg = SEVERITY_CONFIG[severity];
+  if (cfg) return cfg;
+  return { label: 'Perlu Perhatian', colorKey: 'amber', icon: 'help-circle' };
+}
+
 function RiskFlagCard({
   flag,
   colors,
@@ -34,7 +42,7 @@ function RiskFlagCard({
   flag: RiskFlagResponse;
   colors: ReturnType<typeof useColors>;
 }) {
-  const sev = SEVERITY_CONFIG[flag.severity] ?? SEVERITY_CONFIG.info;
+  const sev = severityConfig(flag.severity);
   const bgKey = (sev.colorKey + 'Bg') as keyof typeof colors;
   const borderKey = (sev.colorKey + 'Border') as keyof typeof colors;
   const fgKey = (sev.colorKey + 'Foreground') as keyof typeof colors;
@@ -179,7 +187,7 @@ export default function ReviewScreen() {
                 {flagCounts && (
                   <View style={[styles.countRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     {(['critical', 'high', 'medium', 'info'] as const).map((sev) => {
-                      const count = flagCounts[sev] ?? 0;
+                      const count = flagCounts[sev] ?? 0; // silent-failure-ok: count of an absent bucket is genuinely zero
                       if (!count) return null;
                       const cfg = SEVERITY_CONFIG[sev];
                       const color = colors[cfg.colorKey as keyof typeof colors] as string;

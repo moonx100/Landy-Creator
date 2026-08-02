@@ -48,3 +48,14 @@ OPEN as of 31 Jul 2026. `scripts/governance/validate-redaction-before-inference.
 fails on this. Do not silence the validator.
 
 Related: `.claude/rules/redact-before-inference.md`, `MEMORY.md`.
+
+---
+
+## RESOLVED — 2 Aug 2026
+
+Fixed by PR `fix/redaction-all-channels` (commit `3252e3b`, merged `fce7cb3`)
+via candidate fix #1 as recommended: `_format_batch()` redacts before/after
+text through the version-scoped mapping (`materiality.py:80-86`), the mapping
+is fetched at L183 and persisted at L240-242, and `classify_materiality` gained
+a `version_id` parameter. `validate-redaction-before-inference.sh` passes.
+Verified against HEAD `6b7076a` during the LC-41 session.

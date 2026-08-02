@@ -50,7 +50,31 @@ function ExtractionBadge({ doc }: { doc: DocumentListItem }) {
   const v = doc.latest_version;
   if (!v) return null;
   if (!v.extraction_ok) {
-    return <Badge variant="destructive" className="text-xs gap-1"><AlertTriangle className="w-3 h-3" />Ekstraksi gagal</Badge>;
+    // extraction_note carries the reason — surface it, don't just say "failed".
+    return (
+      <Badge
+        variant="destructive"
+        className="text-xs gap-1"
+        title={v.extraction_note ?? undefined}
+      >
+        <AlertTriangle className="w-3 h-3" />
+        {v.extraction_note
+          ? `Ekstraksi gagal — ${v.extraction_note}`
+          : "Ekstraksi gagal"}
+      </Badge>
+    );
+  }
+  if (v.tc_parse_status === "failed" || v.comments_parse_status === "failed") {
+    return (
+      <Badge
+        variant="outline"
+        className="text-xs gap-1 text-amber-700 border-amber-300"
+        title={v.tc_parse_note ?? v.comments_parse_note ?? undefined}
+      >
+        <AlertTriangle className="w-3 h-3" />
+        Revisi/komentar tidak terbaca
+      </Badge>
+    );
   }
   if (v.accuracy_warning) {
     return <Badge variant="outline" className="text-xs gap-1 text-amber-600 border-amber-300"><AlertTriangle className="w-3 h-3" />Akurasi OCR bervariasi</Badge>;

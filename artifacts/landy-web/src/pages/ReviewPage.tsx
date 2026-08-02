@@ -86,7 +86,16 @@ type Severity = keyof typeof SEVERITY_CONFIG;
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function SeverityBadge({ severity }: { severity: string }) {
-  const cfg = SEVERITY_CONFIG[severity as Severity] ?? SEVERITY_CONFIG.info;
+  // Total mapping — no `??`-to-info fallback. An unrecognised severity is a
+  // loud amber state, never demoted to the quietest badge (LC-41/LC-30).
+  const cfg = SEVERITY_CONFIG[severity as Severity];
+  if (!cfg) {
+    return (
+      <Badge className="text-xs font-semibold px-2 py-0.5 border bg-amber-100 text-amber-800 border-amber-300">
+        Perlu Perhatian
+      </Badge>
+    );
+  }
   return (
     <Badge className={`text-xs font-semibold px-2 py-0.5 border ${cfg.badgeClass}`}>
       {cfg.label}
@@ -210,7 +219,7 @@ function FlagDetail({
             <SeverityBadge severity={flag.severity} />
             <FindingTypeBadge findingType={flag.finding_type} />
             <span className="text-xs text-muted-foreground">
-              {DOMAIN_LABELS[flag.domain] ?? flag.domain}
+              {DOMAIN_LABELS[flag.domain] ?? flag.domain /* silent-failure-ok: cosmetic label, falls back to raw key */}
             </span>
           </div>
           <h2 className="text-base font-semibold leading-snug">{flag.summary}</h2>
@@ -535,12 +544,58 @@ export default function ReviewPage() {
         </div>
       </header>
 
-      {/* Warning if analysis had partial errors */}
-      {results.error_message && (
+      {/* Failed-job notice — quota refunded, retry keeps successful checks */}
+      {results.state === "failed" && (
+        <div className="bg-rose-50 border-b border-rose-200 px-4 py-2.5">
+          <p className="text-xs text-rose-800 max-w-screen-xl mx-auto leading-relaxed">
+            <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
+            <strong>Analisis gagal — sebagian besar pemeriksaan tidak dapat diselesaikan.</strong>{" "}
+            {results.quota_refunded && (
+              <>Kuota analisis Anda telah dikembalikan.{" "}</>
+            )}
+            Silakan coba analisis ulang — pemeriksaan yang sudah berhasil tidak akan
+            diulang. Jika masalah berlanjut, unggah ulang dokumen dan pastikan
+            formatnya .docx dan terstruktur.
+          </p>
+        </div>
+      )}
+
+      {/* Review-incomplete banner — persistent; blocks the claim of a
+          completed review, not the reading (LC-41). Lists the unchecked risk
+          categories by name for transparency (MV decision 2026-08-02). */}
+      {results.state !== "failed" && !results.review_complete && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5">
+          <div className="text-xs text-amber-800 max-w-screen-xl mx-auto leading-relaxed">
+            <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
+            <strong>Hasil belum lengkap — sebagian pemeriksaan tidak dapat diselesaikan.</strong>{" "}
+            {results.domains_failed > 0 && (
+              <>
+                Kategori risiko yang belum terperiksa ({results.domains_failed} dari{" "}
+                {results.domains_total}):{" "}
+                {results.failed_domains
+                  .map((d) => DOMAIN_LABELS[d] ?? d) // silent-failure-ok: cosmetic label, falls back to raw key
+                  .join(", ")}
+                .{" "}
+              </>
+            )}
+            {results.summary_status === "failed" && (
+              <>Ringkasan dokumen tidak dapat dibuat.{" "}</>
+            )}
+            Jangan mengandalkan daftar temuan ini sebagai gambaran lengkap — coba
+            analisis ulang untuk melengkapi pemeriksaan yang gagal.
+          </div>
+        </div>
+      )}
+
+      {/* Revision-layer unreadable notice (LC-32) */}
+      {results.tc_parse_status === "failed" && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2">
           <p className="text-xs text-amber-800 max-w-screen-xl mx-auto">
-            <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
-            Analisis selesai dengan peringatan: {results.error_message}
+            <GitBranch className="w-3.5 h-3.5 inline mr-1" />
+            <strong>Revisi (Track Changes) dalam dokumen tidak dapat dibaca.</strong>{" "}
+            Jika pihak lain mengirim dokumen dengan revisi, revisi tersebut tidak
+            tercakup dalam analisis ini. Pastikan dokumen yang di-upload dalam
+            format .docx dan terstruktur.
           </p>
         </div>
       )}
@@ -617,7 +672,7 @@ export default function ReviewPage() {
                         <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${cfg.dotClass}`} />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-muted-foreground truncate">
-                            {DOMAIN_LABELS[flag.domain] ?? flag.domain}
+                            {DOMAIN_LABELS[flag.domain] ?? flag.domain /* silent-failure-ok: cosmetic label, falls back to raw key */}
                           </p>
                           <p className="text-sm leading-snug mt-0.5 line-clamp-2">
                             {flag.summary}
@@ -653,7 +708,7 @@ export default function ReviewPage() {
                       <Info className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-muted-foreground truncate">
-                          {DOMAIN_LABELS[flag.domain] ?? flag.domain}
+                          {DOMAIN_LABELS[flag.domain] ?? flag.domain /* silent-failure-ok: cosmetic label, falls back to raw key */}
                         </p>
                         <p className="text-sm leading-snug mt-0.5 line-clamp-2 text-muted-foreground">
                           {flag.summary}
@@ -667,7 +722,17 @@ export default function ReviewPage() {
 
             {flags.length === 0 && (
               <div className="flex flex-col items-center justify-center h-32 text-center px-4">
-                <p className="text-sm text-muted-foreground">Tidak ada temuan risiko.</p>
+                {/* "No risk findings" is only claimable when every check
+                    completed — otherwise the honest incomplete state (LC-41). */}
+                {results.review_complete ? (
+                  <p className="text-sm text-muted-foreground">Tidak ada temuan risiko.</p>
+                ) : (
+                  <p className="text-sm text-amber-700">
+                    Belum ada temuan — tetapi {results.domains_failed} dari{" "}
+                    {results.domains_total} pemeriksaan tidak dapat diselesaikan,
+                    jadi hasil ini belum lengkap.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -691,6 +756,22 @@ export default function ReviewPage() {
               <Scale className="w-10 h-10 text-primary/30" />
               <p className="text-sm">Pilih temuan risiko di panel kiri untuk melihat detailnya.</p>
             </div>
+          )}
+
+          {/* Comments unreadable notice (LC-33) — a failed comments parse is
+              never rendered as "no comments". */}
+          {results.comments_parse_status === "failed" && (
+            <section className="rounded-md border border-amber-300 bg-amber-50 p-4">
+              <p className="text-sm text-amber-900 font-medium flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 shrink-0" />
+                Komentar dalam dokumen tidak dapat dibaca
+              </p>
+              <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                Jika pihak lain menambahkan komentar pada dokumen ini, komentar
+                tersebut tidak tercakup dalam analisis. Pastikan dokumen yang
+                di-upload dalam format .docx dan terstruktur.
+              </p>
+            </section>
           )}
 
           {/* Catatan dari Pihak Lain — comment bubbles extracted from DOCX */}

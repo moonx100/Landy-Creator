@@ -94,29 +94,38 @@ def _delete_existing_diff(from_version_id: str, to_version_id: str) -> None:
 def _persist_diff_rows(
     from_version_id: str,
     to_version_id: str,
-    entries_with_materiality: list[tuple],  # (DiffEntry, materiality, reason)
+    entries_with_materiality: list[tuple],  # (DiffEntry, MaterialityResult)
 ) -> int:
-    """Persist version_diffs rows. Returns row count written."""
+    """Persist version_diffs rows. Returns row count written.
+
+    A failed classification is stored as materiality=NULL with
+    classification_status='failed' — the joint CHECK constraint rejects any
+    attempt to store a value alongside a failure (LC-41).
+    """
     if not entries_with_materiality:
         return 0
 
     with engine.begin() as conn:
         conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
-        for entry, materiality, reason in entries_with_materiality:
+        for entry, result in entries_with_materiality:
             conn.execute(
                 sa.text(
                     "INSERT INTO version_diffs "
                     "(from_version, to_version, clause_ref, change_kind, "
-                    " materiality, materiality_reason, before_text, after_text) "
-                    "VALUES (:fv, :tv, :ref, :kind, :mat, :reason, :before, :after)"
+                    " materiality, materiality_reason, "
+                    " classification_status, classification_error, "
+                    " before_text, after_text) "
+                    "VALUES (:fv, :tv, :ref, :kind, :mat, :reason, :st, :err, :before, :after)"
                 ),
                 {
                     "fv": from_version_id,
                     "tv": to_version_id,
                     "ref": entry.clause_ref,
                     "kind": entry.change_kind,
-                    "mat": materiality,
-                    "reason": reason,
+                    "mat": result.materiality,
+                    "reason": result.reason if result.status == "ok" else None,
+                    "st": result.status,
+                    "err": result.reason if result.status != "ok" else None,
                     "before": entry.before_text,
                     "after": entry.after_text,
                 },
@@ -250,23 +259,30 @@ def run_diff(
     set_stage_fn(f"Mengklasifikasi materialitas {len(entries)} perubahan klausul")
     materiality_results = classify_materiality(entries, job_id, user_id, to_version_id)
 
-    # Pair each entry with its (materiality, reason)
-    entries_with_materiality = [
-        (entry, mat, reason)
-        for entry, (mat, reason) in zip(entries, materiality_results)
-    ]
+    entries_with_materiality = list(zip(entries, materiality_results))
 
     # Idempotent: delete any prior diff rows for this pair before reinserting
     _delete_existing_diff(from_version_id, to_version_id)
     rows_written = _persist_diff_rows(from_version_id, to_version_id, entries_with_materiality)
 
-    material_count = sum(1 for _, mat, _ in entries_with_materiality if mat == "material")
+    # Counts by counting — never by subtraction — so the unclassified state
+    # is visible instead of being absorbed into "immaterial" (LC-41).
+    material_count = sum(
+        1 for _, r in entries_with_materiality if r.materiality == "material"
+    )
+    immaterial_count = sum(
+        1 for _, r in entries_with_materiality if r.materiality == "immaterial"
+    )
+    unclassified_count = sum(
+        1 for _, r in entries_with_materiality if r.status == "failed"
+    )
     logger.info(
         "version_diff_persisted",
         from_version_id=from_version_id,
         to_version_id=to_version_id,
         rows_written=rows_written,
         material=material_count,
-        immaterial=rows_written - material_count,
+        immaterial=immaterial_count,
+        unclassified=unclassified_count,
     )
     return rows_written

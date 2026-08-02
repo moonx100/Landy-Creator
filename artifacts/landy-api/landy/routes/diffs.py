@@ -92,38 +92,58 @@ def get_version_diff(
     diff_rows = conn.execute(
         sa.text(
             "SELECT id, from_version, to_version, clause_ref, change_kind, "
-            "  materiality, materiality_reason, before_text, after_text "
+            "  materiality, materiality_reason, "
+            "  classification_status, classification_error, "
+            "  before_text, after_text "
             "FROM version_diffs "
             "WHERE from_version = :fv AND to_version = :tv "
-            # Material changes first, then immaterial; within each group by clause_ref
+            # Material and unclassified changes first (co-equal weight, per
+            # MV: an unclassified change deserves the same attention as a
+            # material one), then immaterial; within each group by clause_ref
             "ORDER BY "
-            "  CASE materiality WHEN 'material' THEN 1 ELSE 2 END ASC, "
+            "  CASE WHEN materiality = 'material' "
+            "       OR classification_status = 'failed' THEN 1 ELSE 2 END ASC, "
             "  clause_ref ASC NULLS LAST"
         ),
         {"fv": str(prior_row.id), "tv": ver_id},
     ).fetchall()
 
-    # ── Fetch has_tracked_changes for the to_version ──────────────────────────
+    # ── Fetch tracked-changes state for the to_version ────────────────────────
     tc_row = conn.execute(
         sa.text(
-            "SELECT has_tracked_changes FROM document_versions WHERE id = :vid"
+            "SELECT has_tracked_changes, tc_parse_status, tc_parse_note "
+            "FROM document_versions WHERE id = :vid"
         ),
         {"vid": ver_id},
     ).fetchone()
     diff_source = (
         "tracked_changes"
-        if tc_row and tc_row.has_tracked_changes
+        if tc_row and tc_row.has_tracked_changes and tc_row.tc_parse_status != "failed"
         else "text_diff"
     )
 
     if not diff_rows:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                "Diff belum tersedia. Tunggu analisis selesai, "
-                "atau tidak ada perubahan yang terdeteksi antara kedua versi."
+        # Split the conflated 404: "not computed yet" and "computed, nothing
+        # changed" are different facts and get different messages.
+        done_job = conn.execute(
+            sa.text(
+                "SELECT id FROM analysis_jobs "
+                "WHERE version_id = :vid AND user_id = :uid AND state = 'done' "
+                "ORDER BY created_at DESC LIMIT 1"
             ),
-        )
+            {"vid": ver_id, "uid": uid},
+        ).fetchone()
+        if done_job:
+            detail = "Tidak ada perubahan yang terdeteksi antara kedua versi."
+            if tc_row and tc_row.tc_parse_status == "failed":
+                detail = (
+                    "Lapisan revisi (track changes) tidak dapat dibaca dari "
+                    "berkas ini, dan tidak ada perubahan teks yang terdeteksi. "
+                    "Pastikan dokumen yang di-upload dalam format .docx dan terstruktur."
+                )
+        else:
+            detail = "Diff belum tersedia — tunggu analisis selesai."
+        raise HTTPException(status_code=404, detail=detail)
 
     diffs = [
         VersionDiffRow(
@@ -134,13 +154,18 @@ def get_version_diff(
             change_kind=r.change_kind,
             materiality=r.materiality,
             materiality_reason=r.materiality_reason,
+            classification_status=r.classification_status,
+            classification_error=r.classification_error,
             before_text=r.before_text,
             after_text=r.after_text,
         )
         for r in diff_rows
     ]
 
+    # Counts by counting — never subtraction (LC-41)
     material_count = sum(1 for d in diffs if d.materiality == "material")
+    immaterial_count = sum(1 for d in diffs if d.materiality == "immaterial")
+    unclassified_count = sum(1 for d in diffs if d.classification_status == "failed")
 
     # ── Resolve the analysis job for the "to" version ─────────────────────────
     job_row = conn.execute(
@@ -159,6 +184,7 @@ def get_version_diff(
         version_id=ver_id,
         total=len(diffs),
         material=material_count,
+        unclassified=unclassified_count,
         user_id=uid,
     )
 
@@ -169,8 +195,11 @@ def get_version_diff(
         to_version_no=ver_row.version_no,
         total_changes=len(diffs),
         material_count=material_count,
-        immaterial_count=len(diffs) - material_count,
+        immaterial_count=immaterial_count,
+        unclassified_count=unclassified_count,
         diffs=diffs,
         job_id=job_id,
         diff_source=diff_source,
+        tc_parse_status=tc_row.tc_parse_status if tc_row else None,
+        tc_parse_note=tc_row.tc_parse_note if tc_row else None,
     )

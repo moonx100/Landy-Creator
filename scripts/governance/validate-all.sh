@@ -24,6 +24,7 @@ run validate-tracked-changes.sh
 run validate-legal-advice-framing.sh
 run validate-tenant-isolation.sh
 run validate-silent-failure.sh
+run validate-silent-failure-web.sh
 
 # carried corpus/authority discipline
 run validate-provenance-schema.sh

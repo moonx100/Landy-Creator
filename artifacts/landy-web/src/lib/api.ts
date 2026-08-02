@@ -83,6 +83,13 @@ export interface VersionResponse {
   accuracy_warning: string | null;
   detected_language: string | null;
   uploaded_at: string;
+  /** Parse status of the DOCX revision/comments layer. null = not applicable
+   *  (PDF/image); 'failed' = the layer could not be read — distinct from
+   *  "no revisions" / "no comments". */
+  tc_parse_status: 'ok' | 'failed' | null;
+  tc_parse_note: string | null;
+  comments_parse_status: 'ok' | 'failed' | null;
+  comments_parse_note: string | null;
 }
 
 export interface AnalysisJobResponse {
@@ -239,10 +246,27 @@ export interface AnalysisResultsResponse {
   error_message: string | null;
   risk_flags: RiskFlagResponse[];
   flag_counts: { critical: number; high: number; medium: number; info: number };
-  /** Comment bubbles extracted from the DOCX file (empty for PDFs / no-comment docs). */
+  /** Comment bubbles extracted from the DOCX file. An empty list only means
+   *  "no comments" when comments_parse_status is not 'failed'. */
   document_comments: DocCommentResponse[];
-  /** Whether the DOCX contained unaccepted tracked changes. */
+  /** Whether the DOCX contained unaccepted tracked changes. Only meaningful
+   *  when tc_parse_status is not 'failed'. */
   has_tracked_changes: boolean;
+  tc_parse_status: 'ok' | 'failed' | null;
+  tc_parse_note: string | null;
+  comments_parse_status: 'ok' | 'failed' | null;
+  comments_parse_note: string | null;
+  /** Outcome of document-summary generation (null for legacy jobs). */
+  summary_status: 'ok' | 'failed' | null;
+  /** Per-domain run accounting — the source of truth for completeness. */
+  domains_total: number;
+  domains_failed: number;
+  /** Taxonomy keys of failed domains — unchecked risk categories, by name. */
+  failed_domains: string[];
+  /** True when the job crossed the majority-failure threshold and its quota unit was returned. */
+  quota_refunded: boolean;
+  /** True only when every contributing check succeeded. Absence claims may only render when true. */
+  review_complete: boolean;
 }
 
 // ── Analysis API ──────────────────────────────────────────────────────────────
@@ -346,8 +370,13 @@ export interface VersionDiffRow {
   to_version: string;
   clause_ref: string | null;
   change_kind: 'added' | 'removed' | 'modified';
-  materiality: 'material' | 'immaterial';
+  /** null when classification failed — the change is real but its legal
+   *  significance is unknown. Never coerce to 'immaterial'. */
+  materiality: 'material' | 'immaterial' | null;
   materiality_reason: string | null;
+  /** Operational outcome of the classification, separate from the answer. */
+  classification_status: 'ok' | 'low_confidence' | 'failed';
+  classification_error: string | null;
   before_text: string | null;
   after_text: string | null;
 }
@@ -360,7 +389,13 @@ export interface VersionDiffResponse {
   total_changes: number;
   material_count: number;
   immaterial_count: number;
+  /** Changes whose classification failed. Counted, never derived by
+   *  subtraction — total may exceed material + immaterial. */
+  unclassified_count: number;
   has_changes: boolean;
+  /** True only when every change was classified and the revision layer was
+   *  readable. "Tidak ada perubahan material" may only render when true. */
+  review_complete: boolean;
   diffs: VersionDiffRow[];
   /** Completed analysis job for the "to" version, if one exists. */
   job_id: string | null;
@@ -370,6 +405,10 @@ export interface VersionDiffResponse {
    *   'text_diff'       — from clause-level textual comparison between versions.
    */
   diff_source: 'tracked_changes' | 'text_diff';
+  /** 'failed' means revisions could not be read and diff_source degraded to
+   *  text_diff — the UI must say so. */
+  tc_parse_status: 'ok' | 'failed' | null;
+  tc_parse_note: string | null;
 }
 
 /**

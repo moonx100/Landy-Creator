@@ -2,7 +2,7 @@
 
 <!-- gate-first-exempt: index file; declares no rule of its own -->
 
-Eleven rule files. Every one is written **gate-first**: What/Why + **FAIL
+Twelve rule files. Every one is written **gate-first**: What/Why + **FAIL
 condition** + **WHERE-checked** + **Enforcement strength**.
 `scripts/governance/validate-gate-first.sh` mechanically fails any that isn't.
 
@@ -16,6 +16,7 @@ condition** + **WHERE-checked** + **Enforcement strength**.
 | `tracked-changes-authenticity.md` | Real OOXML `w:ins`/`w:del`, never simulated formatting. |
 | `tenant-isolation.md` | Explicit `WHERE user_id` is the isolation layer; RLS is second. |
 | `secrets-hygiene.md` | Nothing secret and no user data enters git. The repo is public. |
+| `unknown-state.md` | Every classification/parse step has a representable, rendered "we don't know" state (LC-41). **Proposed 2026-08-02 — binds after MV sign-off on the LC-41 PR.** |
 
 ## Carried from landy-workspace (adapted to Creator paths)
 

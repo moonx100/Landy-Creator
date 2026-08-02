@@ -7,14 +7,19 @@ Writes usage_events rows for every LLM call.
 Changes are sent in batches of up to _BATCH_SIZE per call to keep prompts
 focused while minimising API round trips.
 
-Design constraints (spec §9):
-  - Never silent failure — classification errors are recorded in
-    materiality_reason, not swallowed.
+Design constraints (spec §9 + LC-41, decided 2026-08-02):
+  - Never silent failure — a change the model could not classify is returned
+    with status='failed' and materiality=None, never as a fabricated
+    'immaterial'. The DB CHECK (version_diffs_materiality_state) makes the
+    dishonest combination unrepresentable.
+  - Every LLM attempt writes a usage_events row, including failures
+    (status='failed', NULL tokens — no local estimates).
   - Findings are always written in Bahasa Indonesia.
 """
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Optional
 
 import sqlalchemy as sa
@@ -26,6 +31,23 @@ from landy.logging_setup import logger
 from landy.redaction import fetch_mapping, persist_mapping, redact
 
 _BATCH_SIZE = 5  # max clause pairs per LLM call
+
+
+@dataclass
+class MaterialityResult:
+    """Outcome of classifying one diff entry.
+
+    The semantic answer (materiality) and the operational outcome (status)
+    are separate facts: status='failed' always carries materiality=None —
+    the absence of an answer is never rendered as a negative answer.
+    """
+    materiality: Optional[str]   # 'material' | 'immaterial' | None when failed
+    status: str                  # 'ok' | 'failed' ('low_confidence' reserved)
+    reason: Optional[str]        # LLM rationale when ok; error detail when failed
+
+
+def _failed(reason: str) -> MaterialityResult:
+    return MaterialityResult(materiality=None, status="failed", reason=reason)
 
 _MATERIALITY_SYSTEM_PROMPT = """\
 Anda adalah analis hukum kontrak Indonesia yang berpengalaman, mengkhususkan diri dalam perjanjian antara kreator konten (influencer, artis, YouTuber) dan brand/agensi.
@@ -89,11 +111,13 @@ def _format_batch(
 
 def _parse_batch_response(
     content: str, expected_count: int
-) -> list[tuple[str, str]]:
+) -> list[MaterialityResult]:
     """Parse the LLM's JSON batch response.
 
-    Returns list of (materiality, reason) tuples, one per entry.
-    Falls back to immaterial on any parse error.
+    Returns one MaterialityResult per expected entry. Any item the model did
+    not answer, answered out of vocabulary, or that was lost to a parse error
+    comes back as status='failed' with materiality=None — never as a
+    fabricated 'immaterial'.
     """
     try:
         data = extract_json(content)
@@ -103,42 +127,54 @@ def _parse_batch_response(
         else:
             items = data.get("changes") or data.get("items") or data.get("results") or []
 
-        results = []
+        results: list[MaterialityResult] = []
         for item in items:
-            m = str(item.get("materiality", "immaterial")).lower()
+            m = str(item.get("materiality", "")).lower()
             if m not in ("material", "immaterial"):
-                m = "immaterial"
+                # Out-of-vocabulary or missing answer is a failed
+                # classification, not a quiet immaterial.
+                results.append(_failed(
+                    f"Jawaban model di luar vokabulari: {m!r}" if m
+                    else "Model tidak memberikan klasifikasi"
+                ))
+                continue
             reason = str(
                 item.get("materiality_reason")
                 or item.get("reason")
-                or "Perubahan redaksional"
+                or "Tidak ada alasan diberikan"
             )[:500]
-            results.append((m, reason))
+            results.append(MaterialityResult(materiality=m, status="ok", reason=reason))
 
-        # Pad with fallback if shorter than expected
+        # Entries the model never answered are failures, not immaterial.
         while len(results) < expected_count:
-            results.append(("immaterial", "Klasifikasi tidak tersedia"))
+            results.append(_failed("Respons model tidak lengkap untuk entri ini"))
 
         return results[:expected_count]
 
-    except (ValueError, KeyError, TypeError):
-        return [("immaterial", "Klasifikasi tidak tersedia")] * expected_count
+    except (ValueError, KeyError, TypeError) as exc:
+        return [
+            _failed(f"Respons model tidak dapat diurai: {exc}")
+        ] * expected_count
 
 
 def _write_usage_event(
     conn: sa.engine.Connection,
     job_id: str,
     user_id: str,
-    input_tokens: int,
-    output_tokens: int,
-    model: str,
+    input_tokens: Optional[int],
+    output_tokens: Optional[int],
+    model: Optional[str],
+    status: str = "ok",
+    failure_stage: Optional[str] = None,
 ) -> None:
+    """Insert one usage row. Failed calls carry NULL tokens and status='failed' —
+    no locally estimated token counts (LC-36)."""
     conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
     conn.execute(
         sa.text(
             "INSERT INTO usage_events "
-            "(user_id, job_id, input_tokens, output_tokens, model) "
-            "VALUES (:uid, :jid, :it, :ot, :m)"
+            "(user_id, job_id, input_tokens, output_tokens, model, status, failure_stage) "
+            "VALUES (:uid, :jid, :it, :ot, :m, :st, :fs)"
         ),
         {
             "uid": user_id,
@@ -146,6 +182,8 @@ def _write_usage_event(
             "it": input_tokens,
             "ot": output_tokens,
             "m": model,
+            "st": status,
+            "fs": failure_stage,
         },
     )
 
@@ -155,7 +193,7 @@ def classify_materiality(
     job_id: str,
     user_id: str,
     version_id: str,
-) -> list[tuple[str, str]]:
+) -> list[MaterialityResult]:
     """Classify each DiffEntry as material or immaterial using the LLM.
 
     Args:
@@ -168,15 +206,16 @@ def classify_materiality(
                     every other call site for this version.
 
     Returns:
-        List of (materiality, materiality_reason) tuples, parallel to entries.
-        On LLM failure, returns ("immaterial", "Klasifikasi tidak tersedia")
-        for the failed batch — never raises.
+        List of MaterialityResult, parallel to entries. On LLM failure the
+        affected batch returns status='failed' with materiality=None — never
+        a fabricated value, and never raises. Failed calls still write a
+        usage_events row (status='failed', NULL tokens).
     """
     if not entries:
         return []
 
     llm = get_llm_client()
-    results: list[tuple[str, str]] = []
+    results: list[MaterialityResult] = []
 
     with engine.begin() as conn:
         conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
@@ -231,9 +270,17 @@ def classify_materiality(
                 batch_start=batch_start,
                 error=str(exc),
             )
-            # Non-fatal fallback — persist rows with "classification unavailable"
+            # Meter the failed attempt — NULL tokens, honest status (LC-36).
+            with engine.begin() as conn:
+                _write_usage_event(
+                    conn, job_id, user_id,
+                    input_tokens=None, output_tokens=None, model=None,
+                    status="failed", failure_stage="materiality_llm",
+                )
+            # Non-fatal for the pipeline, but never a fabricated value: the
+            # whole batch is returned as failed classifications.
             results.extend(
-                [("immaterial", "Klasifikasi tidak tersedia")] * len(batch)
+                [_failed(f"Panggilan LLM gagal: {exc}")] * len(batch)
             )
 
     # Persist any new tokens discovered while formatting batch text.
