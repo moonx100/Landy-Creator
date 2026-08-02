@@ -2,7 +2,7 @@
 
 <!-- gate-first-exempt: index file; declares no rule of its own -->
 
-Twelve rule files. Every one is written **gate-first**: What/Why + **FAIL
+Thirteen rule files. Every one is written **gate-first**: What/Why + **FAIL
 condition** + **WHERE-checked** + **Enforcement strength**.
 `scripts/governance/validate-gate-first.sh` mechanically fails any that isn't.
 
@@ -26,6 +26,12 @@ condition** + **WHERE-checked** + **Enforcement strength**.
 | `status-integrity.md` | `statutes.status`; schema already compliant — this is a regression guard. |
 | `provenance.md` | Corpus half at schema level; answer half applies to risk-flag citations. |
 | `statutory-vs-doctrinal.md` | `statutes.tier_basis` + `citations.basis`. |
+
+## Governance apparatus (added 2026-08-02)
+
+| Rule | Guards |
+|---|---|
+| `session-reconciliation.md` | A money-path or Notion-tied session doesn't close without the `/wrap-session` ritual — reflect, classify, get MV's permission, commit learnings to both the Claude corpus and Notion. |
 
 ## Dormant
 
@@ -66,6 +72,7 @@ row referencing it — the drift guard that keeps this table honest.
 | `.agents/memory/*.md` staleness vs. passing gates | *(no product rule — hygiene)* | `validate-memory-sync.sh` | mechanical + self-audit |
 | Registered `*-INDEX.md` heading maps (e.g. `CLAUDE-INDEX.md`) | *(no product rule — hygiene)* | `validate-index-sync.sh` (wraps `scripts/src/index-headings.ts --check`) | mechanical |
 | Money-path commit (money-path file list per `silent-failure.md` + `unknown-state.md`) | `session-reconciliation.md` | `money-path-guard.sh` (PreToolUse hard-stop) | mechanical + self-audit |
+| End of a turn where money-path files changed (session-close reminder) | `session-reconciliation.md` | `wrap-session-reminder.sh` (Stop hook, advisory-only) | mechanical (fires unconditionally) + self-audit (running `/wrap-session` in full is not itself gated) |
 
 **Reading this table:** "mechanical" means a script's exit code is the verdict;
 "self-audit" means the gate can only approximate the judgment and a human (or
