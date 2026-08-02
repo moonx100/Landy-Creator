@@ -256,14 +256,35 @@ def get_analysis_results(
         for c in comment_rows
     ]
 
-    # Fetch has_tracked_changes for the version
+    # Fetch has_tracked_changes + revision/comments parse status for the version
     tc_row = conn.execute(
         sa.text(
-            "SELECT has_tracked_changes FROM document_versions WHERE id = :vid"
+            "SELECT has_tracked_changes, tc_parse_status, tc_parse_note, "
+            "comments_parse_status, comments_parse_note "
+            "FROM document_versions WHERE id = :vid"
         ),
         {"vid": version_id_str},
     ).fetchone()
     has_tracked_changes = bool(tc_row and tc_row.has_tracked_changes)
+
+    # Job-level completeness: summary outcome, quota refund, per-domain runs
+    job_meta = conn.execute(
+        sa.text(
+            "SELECT summary_status, quota_refunded FROM analysis_jobs "
+            "WHERE id = :jid AND user_id = :uid"
+        ),
+        {"jid": str(job_id), "uid": uid},
+    ).fetchone()
+
+    run_rows = conn.execute(
+        sa.text(
+            "SELECT adr.domain_key, adr.status FROM analysis_domain_runs adr "
+            "JOIN analysis_jobs aj ON aj.id = adr.job_id "
+            "WHERE adr.job_id = :jid AND aj.user_id = :uid"
+        ),
+        {"jid": str(job_id), "uid": uid},
+    ).fetchall()
+    failed_domains = sorted(r.domain_key for r in run_rows if r.status == "failed")
 
     return AnalysisResultsResponse(
         job_id=job_row.id,
@@ -275,4 +296,13 @@ def get_analysis_results(
         risk_flags=flags,
         document_comments=doc_comments,
         has_tracked_changes=has_tracked_changes,
+        tc_parse_status=tc_row.tc_parse_status if tc_row else None,
+        tc_parse_note=tc_row.tc_parse_note if tc_row else None,
+        comments_parse_status=tc_row.comments_parse_status if tc_row else None,
+        comments_parse_note=tc_row.comments_parse_note if tc_row else None,
+        summary_status=job_meta.summary_status if job_meta else None,
+        domains_total=len(run_rows),
+        domains_failed=len(failed_domains),
+        failed_domains=failed_domains,
+        quota_refunded=bool(job_meta and job_meta.quota_refunded),
     )

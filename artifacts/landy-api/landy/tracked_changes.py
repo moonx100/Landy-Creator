@@ -38,37 +38,54 @@ class TrackedChange:
 class TrackedChangesResult:
     has_changes: bool
     changes: list[TrackedChange]
+    # Operational outcome, distinct from the semantic answer. parse_ok=False
+    # means "we could not read the revision layer" — which must never be
+    # collapsed into has_changes=False ("we read it and there are none").
+    parse_ok: bool = True
+    parse_note: Optional[str] = None
 
 
 def parse_tracked_changes(file_bytes: bytes) -> TrackedChangesResult:
     """Parse tracked changes from a DOCX file.
 
-    Returns TrackedChangesResult with has_changes=False when:
-    - The file is not a valid ZIP / DOCX.
-    - word/document.xml is missing.
-    - No <w:ins> or <w:del> elements are present.
-    - All TC-bearing paragraphs produce identical orig/revised text.
+    Returns has_changes=False with parse_ok=True only when the document was
+    genuinely readable and carries no <w:ins>/<w:del> (or only whitespace
+    diffs). A file we could not read — invalid ZIP, missing or malformed
+    word/document.xml — returns parse_ok=False with a populated parse_note.
 
-    Never raises — caller logs any unexpected exception and treats it as
-    has_changes=False so the pipeline continues uninterrupted.
+    Never raises; failure is representable in the result instead.
     """
     try:
         with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
             namelist = zf.namelist()
             if "word/document.xml" not in namelist:
-                return TrackedChangesResult(has_changes=False, changes=[])
+                # A DOCX without its main part is a malformed file, not a
+                # document with no revisions.
+                return TrackedChangesResult(
+                    has_changes=False, changes=[], parse_ok=False,
+                    parse_note="Berkas DOCX tidak memiliki word/document.xml",
+                )
             doc_xml = zf.read("word/document.xml")
-    except Exception:
-        return TrackedChangesResult(has_changes=False, changes=[])
+    except Exception as exc:
+        return TrackedChangesResult(
+            has_changes=False, changes=[], parse_ok=False,
+            parse_note=f"Berkas bukan DOCX/ZIP yang valid: {exc}",
+        )
 
     try:
         root = ET.fromstring(doc_xml)
-    except ET.ParseError:
-        return TrackedChangesResult(has_changes=False, changes=[])
+    except ET.ParseError as exc:
+        return TrackedChangesResult(
+            has_changes=False, changes=[], parse_ok=False,
+            parse_note=f"XML dokumen tidak dapat dibaca: {exc}",
+        )
 
     body = root.find(f".//{_W}body")
     if body is None:
-        return TrackedChangesResult(has_changes=False, changes=[])
+        return TrackedChangesResult(
+            has_changes=False, changes=[], parse_ok=False,
+            parse_note="Struktur dokumen tidak memiliki elemen body",
+        )
 
     changes: list[TrackedChange] = []
     para_idx = 0

@@ -39,17 +39,22 @@ class DocComment:
 @dataclass
 class CommentsResult:
     comments: list[DocComment]
+    # Operational outcome, distinct from the semantic answer. parse_ok=False
+    # means "we could not read the comments part" — never to be collapsed
+    # into comments=[] ("we read it and there are none").
+    parse_ok: bool = True
+    parse_note: Optional[str] = None
 
 
 def parse_comments(file_bytes: bytes) -> CommentsResult:
     """Parse all comment bubbles from a DOCX file.
 
-    Returns CommentsResult with an empty list when:
-    - The file is not a valid DOCX/ZIP.
-    - word/comments.xml is absent (no comments in the document).
-    - All comments have empty bodies.
+    Returns an empty list with parse_ok=True only when word/comments.xml is
+    genuinely absent (no comments) or every comment body is empty. A file we
+    could not read — invalid ZIP, malformed comments XML — returns
+    parse_ok=False with a populated parse_note.
 
-    Never raises — errors are swallowed so the pipeline stays non-fatal.
+    Never raises; failure is representable in the result instead.
     """
     try:
         with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
@@ -58,14 +63,20 @@ def parse_comments(file_bytes: bytes) -> CommentsResult:
                 return CommentsResult(comments=[])
             comments_xml = zf.read("word/comments.xml")
             doc_xml = zf.read("word/document.xml") if "word/document.xml" in namelist else b""
-    except Exception:
-        return CommentsResult(comments=[])
+    except Exception as exc:
+        return CommentsResult(
+            comments=[], parse_ok=False,
+            parse_note=f"Berkas bukan DOCX/ZIP yang valid: {exc}",
+        )
 
     # ── Parse comment bodies ──────────────────────────────────────────────────
     try:
         croot = ET.fromstring(comments_xml)
-    except ET.ParseError:
-        return CommentsResult(comments=[])
+    except ET.ParseError as exc:
+        return CommentsResult(
+            comments=[], parse_ok=False,
+            parse_note=f"XML komentar tidak dapat dibaca: {exc}",
+        )
 
     raw_comments: dict[str, dict] = {}
     for comment_elem in croot.iter(f"{_W}comment"):
@@ -84,6 +95,7 @@ def parse_comments(file_bytes: bytes) -> CommentsResult:
 
     # ── Resolve anchor texts from document body ───────────────────────────────
     anchor_texts: dict[str, str] = {}
+    anchor_note: Optional[str] = None
     if doc_xml:
         try:
             droot = ET.fromstring(doc_xml)
@@ -91,7 +103,9 @@ def parse_comments(file_bytes: bytes) -> CommentsResult:
             if dbody is not None:
                 anchor_texts = _extract_anchors(dbody, set(raw_comments.keys()))
         except ET.ParseError:
-            pass  # anchors are optional — comments still surfaced without them
+            # Comments themselves parsed fine; only the anchor resolution
+            # degraded. Surface that in the note without failing the parse.
+            anchor_note = "Teks jangkar komentar tidak dapat dibaca"
 
     # ── Build result list in document order (by comment id, numeric sort) ──────
     try:
@@ -110,7 +124,7 @@ def parse_comments(file_bytes: bytes) -> CommentsResult:
             body=c["body"],
         ))
 
-    return CommentsResult(comments=comments)
+    return CommentsResult(comments=comments, parse_ok=True, parse_note=anchor_note)
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────

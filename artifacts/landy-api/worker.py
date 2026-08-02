@@ -97,6 +97,36 @@ def _mark_failed(job_id: str, error_message: str) -> None:
     )
 
 
+def _refund_quota(job_id: str, user_id: str) -> bool:
+    """Return the job's quota unit to the user (MV decision 2026-08-02).
+
+    Idempotent: the quota_refunded flag on the job is flipped first, in the
+    same guarded UPDATE pattern as LC-15, so a re-run can never refund twice.
+    Returns True when a refund was actually applied.
+    """
+    with engine.begin() as conn:
+        conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+        claimed = conn.execute(
+            sa.text(
+                "UPDATE analysis_jobs SET quota_refunded = TRUE "
+                "WHERE id = :jid AND quota_refunded = FALSE "
+                "RETURNING id"
+            ),
+            {"jid": job_id},
+        ).fetchone()
+        if not claimed:
+            return False
+        conn.execute(
+            sa.text(
+                "UPDATE users SET analyses_used = GREATEST(analyses_used - 1, 0) "
+                "WHERE id = :uid"
+            ),
+            {"uid": user_id},
+        )
+    logger.info("quota_refunded", job_id=job_id, user_id=user_id)
+    return True
+
+
 # ── Pipeline stages ───────────────────────────────────────────────────────────
 
 def _process_job(job_id: str, version_id: str, user_id: str) -> None:
@@ -198,27 +228,42 @@ def _process_job(job_id: str, version_id: str, user_id: str) -> None:
     logger.info("clauses_saved", version_id=version_id, count=len(clauses))
 
     # ── 2.5. Parse DOCX tracked changes + comment bubbles ────────────────────
-    # DOCX-only — PDFs have no standardised revision-mark format.
-    # Non-fatal: any failure is logged and the pipeline continues unaffected.
+    # DOCX-only — PDFs have no standardised revision-mark format (their
+    # tc/comments parse statuses stay NULL = not applicable).
+    # Non-fatal for the job, but never silent: a parse failure is persisted as
+    # tc_parse_status/comments_parse_status = 'failed' so the UI can say
+    # "revisi/komentar tidak dapat dibaca" instead of claiming a clean document.
     _tc_result = None
     if result.source_format == "docx" and result.extraction_ok:
         _set_stage(job_id, "Membaca track changes dan komentar dari DOCX")
+        from landy.tracked_changes import parse_tracked_changes
+        from landy.doc_comments import parse_comments
+
+        _tc_result = parse_tracked_changes(file_bytes)
+        _comments_result = parse_comments(file_bytes)
+
         try:
-            from landy.tracked_changes import parse_tracked_changes
-            from landy.doc_comments import parse_comments
-
-            _tc_result = parse_tracked_changes(file_bytes)
-            _comments_result = parse_comments(file_bytes)
-
-            # Persist has_tracked_changes flag on the version row
+            # Persist tracked-changes flag + both parse statuses on the version
             with engine.begin() as conn:
                 conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
                 conn.execute(
                     sa.text(
-                        "UPDATE document_versions "
-                        "SET has_tracked_changes = :htc WHERE id = :vid"
+                        "UPDATE document_versions SET "
+                        "has_tracked_changes = :htc, "
+                        "tc_parse_status = :tcs, "
+                        "tc_parse_note = :tcn, "
+                        "comments_parse_status = :cps, "
+                        "comments_parse_note = :cpn "
+                        "WHERE id = :vid"
                     ),
-                    {"htc": _tc_result.has_changes, "vid": version_id},
+                    {
+                        "htc": _tc_result.has_changes,
+                        "tcs": "ok" if _tc_result.parse_ok else "failed",
+                        "tcn": _tc_result.parse_note,
+                        "cps": "ok" if _comments_result.parse_ok else "failed",
+                        "cpn": _comments_result.parse_note,
+                        "vid": version_id,
+                    },
                 )
 
             # Persist extracted comment bubbles (idempotent via DELETE+INSERT)
@@ -251,16 +296,51 @@ def _process_job(job_id: str, version_id: str, user_id: str) -> None:
                 "docx_tc_comments_parsed",
                 version_id=version_id,
                 has_tc=_tc_result.has_changes,
+                tc_parse_status="ok" if _tc_result.parse_ok else "failed",
                 tc_count=len(_tc_result.changes),
+                comments_parse_status="ok" if _comments_result.parse_ok else "failed",
                 comments_count=len(_comments_result.comments),
             )
         except Exception as exc:
+            # DB persistence failed (the parsers themselves never raise).
+            # Record the failure on the version row so the downgrade to
+            # text-diff is visible, then continue without tracked changes.
             logger.error(
                 "docx_tc_comments_error",
                 version_id=version_id,
                 error=str(exc),
             )
-            _tc_result = None  # fall back to text-level diff
+            _tc_result = None
+            try:
+                with engine.begin() as conn:
+                    conn.execute(sa.text("SET LOCAL app.current_user_id = 'SYSTEM_WORKER'"))
+                    conn.execute(
+                        sa.text(
+                            "UPDATE document_versions SET "
+                            "tc_parse_status = 'failed', "
+                            "tc_parse_note = :note, "
+                            "comments_parse_status = 'failed', "
+                            "comments_parse_note = :note "
+                            "WHERE id = :vid"
+                        ),
+                        {
+                            "note": f"Gagal menyimpan hasil pembacaan revisi/komentar: {exc}",
+                            "vid": version_id,
+                        },
+                    )
+            except Exception as exc2:
+                # Even the status write failed — surface loudly in logs; the
+                # job-level error path is the only remaining honest channel.
+                logger.error(
+                    "docx_tc_comments_status_write_failed",
+                    version_id=version_id,
+                    error=str(exc2),
+                )
+
+        # A failed revision-layer parse must not feed downstream consumers a
+        # confident "no changes" object.
+        if _tc_result is not None and not _tc_result.parse_ok:
+            _tc_result = None
 
     # ── 4.5. Version diff (if version_no > 1) ────────────────────────────────
     # Runs after segmentation so both versions have clauses; uses non-redacted
@@ -327,18 +407,38 @@ def _process_job(job_id: str, version_id: str, user_id: str) -> None:
                 f"{len(domain_errors)} domain gagal:\n" +
                 "\n".join(domain_errors[:10])
             )
-            if domains_ok == 0:
-                # All domains failed — hard failure
-                _mark_failed(job_id, err_summary)
+            # MV decision 2026-08-02: a majority-failed analysis is not a
+            # result. >50% failed → honest 'failed' job + quota refund. The
+            # successful domain runs stay persisted so a retry only re-runs
+            # the failed checks.
+            if len(domain_errors) * 2 > n_total:
+                refunded = _refund_quota(job_id, user_id)
+                fail_msg = (
+                    f"Analisis gagal: {len(domain_errors)} dari {n_total} "
+                    f"pemeriksaan tidak dapat diselesaikan. "
+                    + (
+                        "Kuota analisis Anda telah dikembalikan. "
+                        if refunded
+                        else ""
+                    )
+                    + "Silakan coba lagi — pemeriksaan yang sudah berhasil "
+                    "tidak akan diulang. Jika masalah berlanjut, unggah ulang "
+                    "dokumen dan pastikan formatnya .docx dan terstruktur."
+                )
+                _mark_failed(job_id, fail_msg)
                 logger.error(
-                    "analysis_all_domains_failed",
+                    "analysis_majority_failed",
                     job_id=job_id,
                     version_id=version_id,
-                    domain_errors=domain_errors,
+                    domains_ok=domains_ok,
+                    domains_failed=len(domain_errors),
+                    quota_refunded=refunded,
                 )
                 return
             else:
-                # Partial failure — job completes but records which domains failed
+                # Partial failure below the threshold — job completes; the
+                # failed domains stay visible via analysis_domain_runs and
+                # error_message, and the UI blocks the all-clear claim.
                 _exec_worker(
                     "UPDATE analysis_jobs SET error_message = :err WHERE id = :id",
                     {"err": err_summary[:2000], "id": job_id},

@@ -97,6 +97,10 @@ def _row_to_version(row: sa.Row) -> VersionResponse:
         extraction_note=row.extraction_note,
         detected_language=row.detected_language,
         uploaded_at=row.uploaded_at,
+        tc_parse_status=getattr(row, "tc_parse_status", None),
+        tc_parse_note=getattr(row, "tc_parse_note", None),
+        comments_parse_status=getattr(row, "comments_parse_status", None),
+        comments_parse_note=getattr(row, "comments_parse_note", None),
     )
 
 
@@ -168,7 +172,8 @@ def list_documents(
             sa.text(
                 "SELECT id, document_id, version_no, source_filename, source_format, "
                 "storage_key, sha256, extraction_ok, extraction_note, "
-                "detected_language, uploaded_at "
+                "detected_language, uploaded_at, "
+                "tc_parse_status, tc_parse_note, comments_parse_status, comments_parse_note "
                 "FROM document_versions WHERE document_id = :did "
                 "ORDER BY version_no DESC LIMIT 1"
             ),
@@ -384,7 +389,8 @@ def list_versions(
     rows = conn.execute(
         sa.text(
             "SELECT id, document_id, version_no, source_filename, source_format, "
-            "storage_key, sha256, extraction_ok, extraction_note, detected_language, uploaded_at "
+            "storage_key, sha256, extraction_ok, extraction_note, detected_language, uploaded_at, "
+            "tc_parse_status, tc_parse_note, comments_parse_status, comments_parse_note "
             "FROM document_versions WHERE document_id = :did ORDER BY version_no DESC"
         ),
         {"did": str(document_id)},
