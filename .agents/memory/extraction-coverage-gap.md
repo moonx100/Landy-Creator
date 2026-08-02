@@ -44,7 +44,10 @@ pass the failure it exists to catch or reject legitimate one-page agreements.
 
 ## Status
 
-OPEN as of 31 Jul 2026. `scripts/governance/validate-extraction-coverage.sh` and
-the `/review-gate` rubric both fail on this.
+**RESOLVED** by PR `fix/extraction-table-coverage`. `extraction.py` now defines
+`_MIN_CHARS=100`, `_MIN_COVERAGE_RATIO=0.5` (DOCX), `_MIN_CHARS_PER_PAGE=40`
+(PDF), `_MIN_CHARS_PER_KB=0.5` (image) and checks them at every success branch
+(verified against current `artifacts/landy-api/landy/extraction.py`,
+2 Aug 2026). `scripts/governance/validate-extraction-coverage.sh` passes.
 
 Related: `.claude/rules/extraction-coverage.md`, `MEMORY.md`.
