@@ -28,6 +28,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from landy.config import settings
+from landy.database import engine
 from landy.deps.db import get_raw_conn
 from landy.deps.auth import get_current_user
 from landy.logging_setup import logger
@@ -44,6 +45,18 @@ from landy.models.auth import (
 router = APIRouter()
 
 _OTP_TTL_MINUTES = 15
+
+# OTP verify rate limiting (LC-4). Rolling window: lockout expires as old
+# attempt rows age out of the window, so no separate lockout-state write is
+# needed. Counts only failed attempts — a burst of correct verifications
+# (e.g. a double-submit) must never lock a legitimate user out.
+_OTP_RATE_LIMIT_WINDOW_MINUTES = 15
+_OTP_MAX_FAILED_ATTEMPTS_PER_IDENTIFIER = 5
+_OTP_MAX_FAILED_ATTEMPTS_PER_IP = 15
+_RATE_LIMITED = HTTPException(
+    status_code=429,
+    detail="Terlalu banyak percobaan. Coba lagi dalam beberapa menit.",
+)
 
 
 def _hash_otp(otp: str) -> str:
@@ -62,6 +75,61 @@ def _create_session(conn: sa.engine.Connection, user_id: str) -> tuple[str, date
         {"token": token, "user_id": user_id, "expires_at": expires_at},
     )
     return token, expires_at
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _recent_failed_attempts(
+    conn: sa.engine.Connection, column: str, value: str
+) -> int:
+    """Count failed otp_verify_attempts rows for `column` = `value` within the
+    rate-limit window. `column` is a fixed literal from this module, never
+    request input — safe to interpolate into the query text.
+    """
+    row = conn.execute(
+        sa.text(
+            f"SELECT COUNT(*) AS n FROM otp_verify_attempts "
+            f"WHERE {column} = :value AND success = false "
+            f"AND created_at > now() - make_interval(mins => :window_minutes)"
+        ),
+        {"value": value, "window_minutes": _OTP_RATE_LIMIT_WINDOW_MINUTES},
+    ).fetchone()
+    return row.n
+
+
+def _record_otp_attempt(
+    conn: sa.engine.Connection, identifier: str, ip_address: str, success: bool
+) -> None:
+    conn.execute(
+        sa.text(
+            "INSERT INTO otp_verify_attempts (identifier, ip_address, success) "
+            "VALUES (:identifier, :ip_address, :success)"
+        ),
+        {"identifier": identifier, "ip_address": ip_address, "success": success},
+    )
+
+
+def _record_failed_attempt_committed(identifier: str, ip_address: str) -> None:
+    """Persist a failed OTP attempt in its own transaction.
+
+    `get_raw_conn` wraps the whole request in `engine.begin()`, which rolls
+    back on any exception — and every failed-verify path raises one. Writing
+    the attempt row through the request's own connection would therefore be
+    rolled back along with it, silently erasing the rate limiter's own
+    bookkeeping on every single failure. This uses an independent connection
+    so the failed attempt survives regardless of what the request transaction
+    does next.
+    """
+    with engine.begin() as record_conn:
+        record_conn.execute(
+            sa.text(
+                "INSERT INTO otp_verify_attempts (identifier, ip_address, success) "
+                "VALUES (:identifier, :ip_address, false)"
+            ),
+            {"identifier": identifier, "ip_address": ip_address},
+        )
 
 
 @router.post("/redeem", response_model=SessionResponse)
@@ -194,60 +262,85 @@ def login(
 @router.post("/verify", response_model=SessionResponse)
 def verify_otp(
     body: VerifyOTPRequest,
+    request: Request,
     conn: sa.engine.Connection = Depends(get_raw_conn),
 ) -> SessionResponse:
     """Step 2 of login: validate the OTP and issue a session token.
 
+    Rate-limited per identifier (the email tied to the challenge) and per
+    client IP (LC-4) — both checked before the OTP comparison is attempted,
+    so a locked-out caller never gets a hash comparison to time against.
     On success: marks the login_token as used and creates a new session.
     On failure: raises 401 (same message for wrong OTP or expired/used token).
     """
-    otp_hash = _hash_otp(body.otp)
-
-    token_row = conn.execute(
-        sa.text(
-            "SELECT id, user_id, expires_at, used "
-            "FROM login_tokens "
-            "WHERE id = :challenge_id AND otp_hash = :otp_hash"
-        ),
-        {"challenge_id": str(body.challenge_id), "otp_hash": otp_hash},
-    ).fetchone()
-
+    ip = _client_ip(request)
     _invalid = HTTPException(
         status_code=401,
         detail="Kode OTP tidak valid atau sudah kadaluarsa.",
     )
 
-    if not token_row:
+    # Look up the challenge by id alone (not yet comparing the OTP hash) so
+    # we know which identifier bucket to rate-limit against. A challenge_id
+    # that doesn't resolve to a real, still-valid token is bucketed by the
+    # challenge_id itself — never by "does this email exist", which would
+    # turn the rate limiter into an account-enumeration oracle.
+    challenge_row = conn.execute(
+        sa.text(
+            "SELECT lt.id, lt.user_id, lt.otp_hash, lt.expires_at, lt.used, "
+            "       u.email, u.display_name, u.is_active "
+            "FROM login_tokens lt "
+            "JOIN users u ON u.id = lt.user_id "
+            "WHERE lt.id = :challenge_id"
+        ),
+        {"challenge_id": str(body.challenge_id)},
+    ).fetchone()
+
+    identifier = (
+        challenge_row.email.lower()
+        if challenge_row
+        else f"challenge:{body.challenge_id}"
+    )
+
+    if _recent_failed_attempts(conn, "ip_address", ip) >= _OTP_MAX_FAILED_ATTEMPTS_PER_IP:
+        logger.warning("otp_rate_limited", scope="ip", ip=ip)
+        raise _RATE_LIMITED
+    if (
+        _recent_failed_attempts(conn, "identifier", identifier)
+        >= _OTP_MAX_FAILED_ATTEMPTS_PER_IDENTIFIER
+    ):
+        logger.warning("otp_rate_limited", scope="identifier", ip=ip)
+        raise _RATE_LIMITED
+
+    def _fail() -> None:
+        _record_failed_attempt_committed(identifier, ip)
         raise _invalid
-    if token_row.used:
-        raise _invalid
-    if token_row.expires_at < datetime.now(timezone.utc):
-        raise _invalid
+
+    if not challenge_row:
+        _fail()
+    if challenge_row.used:
+        _fail()
+    if challenge_row.expires_at < datetime.now(timezone.utc):
+        _fail()
+    if not secrets.compare_digest(challenge_row.otp_hash, _hash_otp(body.otp)):
+        _fail()
+    if not challenge_row.is_active:
+        _fail()
 
     # Mark token used (one-time)
     conn.execute(
         sa.text("UPDATE login_tokens SET used = true WHERE id = :id"),
-        {"id": str(token_row.id)},
+        {"id": str(challenge_row.id)},
     )
+    _record_otp_attempt(conn, identifier, ip, success=True)
 
-    user = conn.execute(
-        sa.text(
-            "SELECT id, email, display_name, is_active FROM users WHERE id = :uid"
-        ),
-        {"uid": str(token_row.user_id)},
-    ).fetchone()
-
-    if not user or not user.is_active:
-        raise _invalid
-
-    session_token, expires_at = _create_session(conn, str(user.id))
-    logger.info("user_verified", user_id=str(user.id))
+    session_token, expires_at = _create_session(conn, str(challenge_row.user_id))
+    logger.info("user_verified", user_id=str(challenge_row.user_id))
 
     return SessionResponse(
         token=session_token,
-        user_id=user.id,
-        email=user.email,
-        display_name=user.display_name,
+        user_id=challenge_row.user_id,
+        email=challenge_row.email,
+        display_name=challenge_row.display_name,
         expires_at=expires_at,
     )
 
