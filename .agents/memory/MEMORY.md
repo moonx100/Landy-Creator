@@ -20,6 +20,7 @@ Append, don't delete. Supersede inline with a dated line.
 - [Redaction gap on the diff path](redaction-diff-path-gap.md) — RESOLVED 2 Aug 2026 by PR fix/redaction-all-channels; `_format_batch()` now redacts via the version-scoped mapping.
 - [Extraction coverage gap](extraction-coverage-gap.md) — RESOLVED by PR fix/extraction-table-coverage; real floors + coverage ratios in `extraction.py`.
 - [Materiality default gap](materiality-default-gap.md) — RESOLVED 2 Aug 2026 by the LC-41 unknown-state migration (nullable materiality + classification_status, joint CHECK).
+- [Failure-path transaction rollback](failure-path-transaction-rollback.md) — RESOLVED 3 Aug 2026 (LC-4); `get_raw_conn` rolls back failure-path writes with the request, so records that must survive a raise need their own transaction.
 
 ## Decisions
 
