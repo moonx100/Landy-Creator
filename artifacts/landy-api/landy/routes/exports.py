@@ -68,10 +68,21 @@ def patch_suggested_edit(
     if not row:
         raise HTTPException(status_code=404, detail="Saran perubahan tidak ditemukan.")
 
-    # Update accepted field
+    # Update accepted field. Re-asserts ownership in the UPDATE itself (not just
+    # the preceding SELECT) so the predicate is load-bearing on every query that
+    # touches the row, per the tenant-isolation rule.
     conn.execute(
-        sa.text("UPDATE suggested_edits SET accepted = :val WHERE id = :eid"),
-        {"val": body.accepted, "eid": str(edit_id)},
+        sa.text(
+            "UPDATE suggested_edits SET accepted = :val "
+            "WHERE id = :eid AND EXISTS ("
+            "  SELECT 1 FROM risk_flags rf "
+            "  JOIN document_versions dv ON dv.id = rf.version_id "
+            "  JOIN documents d ON d.id = dv.document_id "
+            "  WHERE rf.id = suggested_edits.risk_flag_id "
+            "    AND d.user_id = :uid AND d.deleted_at IS NULL"
+            ")"
+        ),
+        {"val": body.accepted, "eid": str(edit_id), "uid": uid},
     )
 
     logger.info(
